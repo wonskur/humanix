@@ -3,34 +3,43 @@ set -euo pipefail
 
 echo "[HOOK] Compiling native Humanix components from sources..."
 
-# 1. Сборка sys-sentinel
+# 1. sys-sentinel & sentinel-ctl
 if [ -d "/tmp/src/sys-sentinel" ]; then
-    echo "  -> Building sys-sentinel..."
+    echo "  -> Building sys-sentinel & sentinel-ctl..."
     cd /tmp/src/sys-sentinel
-    make -j"$(nproc)"
-    make install
-    make clean
+    make -j"$(nproc)" install clean || {
+        g++ -O2 -Wall -Wextra -std=c++17 main.cpp -o /usr/local/bin/sys-sentinel
+        g++ -O2 -Wall -Wextra -std=c++17 sentinel-ctl.cpp -o /usr/local/bin/sentinel-ctl
+    }
 fi
 
-# 2. Сборка dish (Humanix Shell)
+# 2. dish (Humanix Shell)
 if [ -d "/tmp/src/dish" ]; then
     echo "  -> Building dish (Humanix Shell)..."
     cd /tmp/src/dish
-    make -j"$(nproc)"
-    make install
-    make clean
+    make -j"$(nproc)" install clean || {
+        echo "  [WARN] Makefile failed, using fallback direct compilation..."
+        g++ -O2 -Wall -Wextra -std=c++17 main.cpp -o /usr/local/bin/dish
+    }
     
-    # Добавляем dish в список легитимных оболочек системы
     if ! grep -qx "/usr/local/bin/dish" /etc/shells; then
         echo "/usr/local/bin/dish" >> /etc/shells
     fi
 fi
 
-echo "[HOOK] Purging source directory and build toolchain..."
-rm -rf /tmp/src
+# 3. humanix-fetch
+if [ -d "/tmp/src/humanix-fetch" ]; then
+    echo "  -> Building humanix-fetch..."
+    cd /tmp/src/humanix-fetch
+    make -j"$(nproc)" install clean || {
+        g++ -O2 -Wall -Wextra -std=c++17 main.cpp -o /usr/local/bin/humanix-fetch
+    }
+fi
 
+echo "[HOOK] Purging sources and temporary build toolchain..."
+rm -rf /tmp/src
 DEBIAN_FRONTEND=noninteractive apt-get purge -y --auto-remove g++ make
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 
-echo "[HOOK] Native compilation completed."
+echo "[HOOK] All native Humanix components built and installed successfully."

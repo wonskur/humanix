@@ -1,4 +1,3 @@
-cat << 'EOF' > src/dish/Makefile
 CXX ?= g++
 CXXFLAGS ?= -O2 -Wall -Wextra -std=c++17
 TARGET = dish
