@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+lb config noauto \
+    --distribution trixie \
+    --archive-areas "main contrib non-free non-free-firmware" \
+    --architectures amd64 \
+    --linux-flavours amd64 \
+    --binary-images iso-hybrid \
+    --bootloader grub-efi \
+    --system live \
+    --security false \
+    --updates false \
+    --memtest none \
+    --win32-loader false \
+    --apt-indices false \
+    --apt-recommends false \
+    --verbose \
+    "${@}"

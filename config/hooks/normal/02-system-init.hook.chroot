@@ -1,0 +1,25 @@
+#!/bin/bash
+set -euo pipefail
+
+echo "[HOOK] Configuring Humanix live environment..."
+
+# Создание пользователя humanix
+if ! id -u humanix >/dev/null 2>&1; then
+    useradd -m -s /bin/bash -u 1000 -U humanix
+    passwd -d humanix
+    usermod -aG sudo,audio,video humanix
+fi
+
+# Sudo без пароля
+echo "humanix ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/01-humanix-user
+chmod 0440 /etc/sudoers.d/01-humanix-user
+
+# Включение сервисов
+systemctl enable systemd-networkd.service
+systemctl enable systemd-resolved.service
+systemctl enable sys-sentinel.service
+
+# Привязка resolver
+ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+
+echo "[HOOK] Humanix system configuration applied."

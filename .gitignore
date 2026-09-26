@@ -1,0 +1,8 @@
+.build/
+chroot/
+binary/
+cache/
+*.iso
+*.iso.zsync
+*.log
+config/includes.chroot/tmp/src/

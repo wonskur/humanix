@@ -1,0 +1,85 @@
+name: Build Humanix Live ISO
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-iso:
+    name: Build Humanix Live ISO
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free disk space on runner
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          df -h
+
+      - name: Build ISO inside Debian Trixie container
+        run: |
+          docker run --privileged --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            debian:trixie \
+            bash -c "
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                live-build \
+                debootstrap \
+                xorriso \
+                squashfs-tools \
+                mtools \
+                dosfstools \
+                isolinux \
+                syslinux-common \
+                binutils \
+                build-essential \
+                rsync \
+                ca-certificates
+
+              ./build.sh
+            "
+
+      - name: Compute Checksum
+        run: |
+          ISO_FILE="humanix-live-amd64.iso"
+          SHA_FILE="${ISO_FILE}.sha256"
+          sha256sum "${ISO_FILE}" > "${SHA_FILE}"
+          echo "ISO_FILE=${ISO_FILE}" >> $GITHUB_ENV
+          echo "SHA_FILE=${SHA_FILE}" >> $GITHUB_ENV
+
+      - name: Upload ISO as Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: humanix-live-amd64
+          path: |
+            ${{ env.ISO_FILE }}
+            ${{ env.SHA_FILE }}
+          retention-days: 5
+
+      - name: Publish to GitHub Releases (Tag only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ISO_FILE }}
+            ${{ env.SHA_FILE }}
+          generate_release_notes: true

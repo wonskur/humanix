@@ -1,0 +1,15 @@
+linux-image-amd64
+live-boot
+systemd
+systemd-sysv
+udev
+dbus
+iproute2
+iputils-ping
+libstdc++6
+libc6
+procps
+bash
+nano
+sudo
+systemd-resolved
