@@ -8,10 +8,8 @@ lb config noauto \
     --linux-flavours amd64 \
     --binary-images iso-hybrid \
     --bootloader grub-efi \
-    --bootappend-live "boot=live components hostname=humanix username=humanix" \
-    --iso-application "Humanix Live System" \
-    --iso-preparer "Humanix Architecture Team" \
-    --iso-publisher "https://github.com/wonskur/humanix" \
+    --bootappend-live "boot=live components hostname=humanix username=humanix quiet splash" \
+    --iso-application "Humanix Live Appliance" \
     --iso-volume "HUMANIX_LIVE" \
     --system live \
     --security false \

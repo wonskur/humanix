@@ -13,3 +13,5 @@ bash
 nano
 sudo
 systemd-resolved
+systemd-zram-generator
+systemd-oomd
