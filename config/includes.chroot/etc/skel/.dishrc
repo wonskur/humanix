@@ -1,0 +1,10 @@
+# Humanix dish configuration
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export EDITOR=nano
+export PAGER=less
+
+alias ll='ls -la --color=auto'
+alias ls='ls --color=auto'
+alias sentinel='journalctl -u sys-sentinel -f'
+alias reboot='sudo reboot'
+alias poweroff='sudo poweroff'

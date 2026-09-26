@@ -1,0 +1,36 @@
+#!/bin/bash
+set -euo pipefail
+
+echo "[HOOK] Compiling native Humanix components from sources..."
+
+# 1. Сборка sys-sentinel
+if [ -d "/tmp/src/sys-sentinel" ]; then
+    echo "  -> Building sys-sentinel..."
+    cd /tmp/src/sys-sentinel
+    make -j"$(nproc)"
+    make install
+    make clean
+fi
+
+# 2. Сборка dish (Humanix Shell)
+if [ -d "/tmp/src/dish" ]; then
+    echo "  -> Building dish (Humanix Shell)..."
+    cd /tmp/src/dish
+    make -j"$(nproc)"
+    make install
+    make clean
+    
+    # Добавляем dish в список легитимных оболочек системы
+    if ! grep -qx "/usr/local/bin/dish" /etc/shells; then
+        echo "/usr/local/bin/dish" >> /etc/shells
+    fi
+fi
+
+echo "[HOOK] Purging source directory and build toolchain..."
+rm -rf /tmp/src
+
+DEBIAN_FRONTEND=noninteractive apt-get purge -y --auto-remove g++ make
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+
+echo "[HOOK] Native compilation completed."

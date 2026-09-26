@@ -1,25 +1,38 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "[HOOK] Configuring Humanix live environment..."
+echo "[HOOK] Configuring Humanix runtime environment..."
 
-# Создание пользователя humanix
-if ! id -u humanix >/dev/null 2>&1; then
-    useradd -m -s /bin/bash -u 1000 -U humanix
-    passwd -d humanix
-    usermod -aG sudo,audio,video humanix
+SHELL_BIN="/usr/local/bin/dish"
+FALLBACK_SHELL="/bin/bash"
+
+TARGET_SHELL="${FALLBACK_SHELL}"
+if [ -x "${SHELL_BIN}" ]; then
+    TARGET_SHELL="${SHELL_BIN}"
 fi
 
-# Sudo без пароля
+# Создаем пользователя humanix с дефолтным шеллом dish
+if ! id -u humanix >/dev/null 2>&1; then
+    useradd -m -s "${TARGET_SHELL}" -u 1000 -U humanix
+    passwd -d humanix
+    usermod -aG sudo,audio,video humanix
+else
+    chsh -s "${TARGET_SHELL}" humanix
+fi
+
+# Для root также выставляем dish при интерактивном входе
+chsh -s "${TARGET_SHELL}" root
+
+# Sudoers NOPASSWD
 echo "humanix ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/01-humanix-user
 chmod 0440 /etc/sudoers.d/01-humanix-user
 
-# Включение сервисов
+# Включаем сетевые службы и демон телеметрии
 systemctl enable systemd-networkd.service
 systemctl enable systemd-resolved.service
 systemctl enable sys-sentinel.service
 
-# Привязка resolver
+# DNS stub
 ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 
-echo "[HOOK] Humanix system configuration applied."
+echo "[HOOK] Runtime environment configured with shell: ${TARGET_SHELL}"
