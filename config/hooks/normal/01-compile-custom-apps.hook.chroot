@@ -3,7 +3,6 @@ set -euo pipefail
 
 echo "[HOOK] Compiling native Humanix components from sources..."
 
-# 1. sys-sentinel & sentinel-ctl
 if [ -d "/tmp/src/sys-sentinel" ]; then
     echo "  -> Building sys-sentinel & sentinel-ctl..."
     cd /tmp/src/sys-sentinel
@@ -13,7 +12,6 @@ if [ -d "/tmp/src/sys-sentinel" ]; then
     }
 fi
 
-# 2. dish (Humanix Shell)
 if [ -d "/tmp/src/dish" ]; then
     echo "  -> Building dish (Humanix Shell)..."
     cd /tmp/src/dish
@@ -27,12 +25,19 @@ if [ -d "/tmp/src/dish" ]; then
     fi
 fi
 
-# 3. humanix-fetch
 if [ -d "/tmp/src/humanix-fetch" ]; then
     echo "  -> Building humanix-fetch..."
     cd /tmp/src/humanix-fetch
     make -j"$(nproc)" install clean || {
         g++ -O2 -Wall -Wextra -std=c++17 main.cpp -o /usr/local/bin/humanix-fetch
+    }
+fi
+
+if [ -d "/tmp/src/humanix-installer" ]; then
+    echo "  -> Building humanix-installer..."
+    cd /tmp/src/humanix-installer
+    make -j"$(nproc)" install clean || {
+        g++ -O2 -Wall -Wextra -std=c++17 main.cpp -o /usr/local/sbin/humanix-installer
     }
 fi
 

@@ -5,6 +5,11 @@ export PAGER=less
 
 alias ll='ls -la --color=auto'
 alias ls='ls --color=auto'
+alias fetch='humanix-fetch'
 alias sentinel='journalctl -u sys-sentinel -f'
+alias installer='sudo humanix-installer'
 alias reboot='sudo reboot'
 alias poweroff='sudo poweroff'
+
+# Приветственный статус хоста
+humanix-fetch

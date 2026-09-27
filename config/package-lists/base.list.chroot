@@ -15,3 +15,8 @@ sudo
 systemd-resolved
 systemd-zram-generator
 systemd-oomd
+parted
+e2fsprogs
+dosfstools
+grub-efi-amd64
+efibootmgr
