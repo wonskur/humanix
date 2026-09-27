@@ -1,0 +1,21 @@
+#!/bin/bash
+set -euo pipefail
+
+echo "[HOOK] Creating canonical /live/vmlinuz and /live/initrd.img links..."
+
+cd binary/live
+
+KERNEL=$(ls vmlinuz-* 2>/dev/null | head -n 1 || true)
+INITRD=$(ls initrd.img-* 2>/dev/null | head -n 1 || true)
+
+if [ -n "${KERNEL}" ]; then
+    echo "  -> Linking ${KERNEL} to vmlinuz"
+    cp -l "${KERNEL}" vmlinuz 2>/dev/null || cp "${KERNEL}" vmlinuz
+fi
+
+if [ -n "${INITRD}" ]; then
+    echo "  -> Linking ${INITRD} to initrd.img"
+    cp -l "${INITRD}" initrd.img 2>/dev/null || cp "${INITRD}" initrd.img
+fi
+
+echo "[HOOK] Canonical kernel links ready."
