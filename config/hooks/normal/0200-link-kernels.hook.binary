@@ -3,10 +3,21 @@ set -euo pipefail
 
 echo "[HOOK] Creating canonical /live/vmlinuz and /live/initrd.img links..."
 
-cd binary/live
+# Определяем путь к каталогу live относительно текущей директории исполнения
+if [ -d "live" ]; then
+    LIVE_DIR="live"
+elif [ -d "binary/live" ]; then
+    LIVE_DIR="binary/live"
+else
+    echo "[HOOK ERROR] Cannot find live/ directory from $(pwd)"
+    exit 1
+fi
 
-KERNEL=$(ls vmlinuz-* 2>/dev/null | head -n 1 || true)
-INITRD=$(ls initrd.img-* 2>/dev/null | head -n 1 || true)
+cd "${LIVE_DIR}"
+
+# Находим первое версионное ядро, исключая уже созданные симлинки/хардлинки
+KERNEL=$(ls vmlinuz-* 2>/dev/null | grep -Ev '^(vmlinuz|vmlinuz\.tmp)$' | head -n 1 || true)
+INITRD=$(ls initrd.img-* 2>/dev/null | grep -Ev '^(initrd\.img|initrd\.img\.tmp)$' | head -n 1 || true)
 
 if [ -n "${KERNEL}" ]; then
     echo "  -> Linking ${KERNEL} to vmlinuz"
@@ -18,4 +29,5 @@ if [ -n "${INITRD}" ]; then
     cp -l "${INITRD}" initrd.img 2>/dev/null || cp "${INITRD}" initrd.img
 fi
 
-echo "[HOOK] Canonical kernel links ready."
+echo "[HOOK] Canonical kernel links verified:"
+ls -lh vmlinuz initrd.img
