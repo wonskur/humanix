@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "[HOOK] Configuring Humanix runtime environment..."
+echo "[HOOK] Configuring Humanix runtime, NetworkManager and user groups..."
 
 SHELL_BIN="/usr/local/bin/dish"
 FALLBACK_SHELL="/bin/bash"
@@ -11,28 +11,26 @@ if [ -x "${SHELL_BIN}" ]; then
     TARGET_SHELL="${SHELL_BIN}"
 fi
 
-# Создаем пользователя humanix с дефолтным шеллом dish
 if ! id -u humanix >/dev/null 2>&1; then
     useradd -m -s "${TARGET_SHELL}" -u 1000 -U humanix
     passwd -d humanix
-    usermod -aG sudo,audio,video humanix
+    usermod -aG sudo,audio,video,netdev humanix
 else
     chsh -s "${TARGET_SHELL}" humanix
+    usermod -aG netdev humanix
 fi
 
-# Для root также выставляем dish при интерактивном входе
 chsh -s "${TARGET_SHELL}" root
 
-# Sudoers NOPASSWD
 echo "humanix ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/01-humanix-user
 chmod 0440 /etc/sudoers.d/01-humanix-user
 
-# Включаем сетевые службы и демон телеметрии
-systemctl enable systemd-networkd.service
-systemctl enable systemd-resolved.service
+systemctl enable NetworkManager.service
 systemctl enable sys-sentinel.service
 
-# DNS stub
-ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+systemctl disable systemd-networkd.service || true
+systemctl mask systemd-networkd.service || true
+systemctl mask systemd-networkd-wait-online.service || true
+systemctl mask apt-daily.service apt-daily.timer apt-daily-upgrade.service apt-daily-upgrade.timer || true
 
-echo "[HOOK] Runtime environment configured with shell: ${TARGET_SHELL}"
+echo "[HOOK] Humanix runtime configured cleanly."

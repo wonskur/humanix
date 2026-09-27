@@ -5,11 +5,14 @@ export PAGER=less
 
 alias ll='ls -la --color=auto'
 alias ls='ls --color=auto'
-alias fetch='humanix-fetch'
+alias net='nmtui'
+alias wifi='nmtui'
+alias ports='ss -tulpn'
+alias top='btop'
+alias rg='rg --smart-case'
+alias mem='sentinel-ctl STATUS'
 alias sentinel='journalctl -u sys-sentinel -f'
 alias installer='sudo humanix-installer'
 alias reboot='sudo reboot'
 alias poweroff='sudo poweroff'
-
-# Приветственный статус хоста
 humanix-fetch
