@@ -58,6 +58,9 @@ jobs:
               ./build.sh
             "
 
+      - name: Report ISO size
+        run: stat -c 'Built ISO size: %s bytes (%n)' humanix-live-amd64.iso
+
       - name: Compute Checksum
         run: |
           ISO_FILE="humanix-live-amd64.iso"

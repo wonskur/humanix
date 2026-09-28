@@ -15,4 +15,6 @@ alias sentinel='journalctl -u sys-sentinel -f'
 alias installer='sudo humanix-installer'
 alias reboot='sudo reboot'
 alias poweroff='sudo poweroff'
-humanix-fetch
+if command -v fastfetch >/dev/null 2>&1; then
+    fastfetch
+fi

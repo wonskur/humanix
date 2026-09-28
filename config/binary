@@ -95,7 +95,7 @@ LB_LOADLIN="false"
 LB_WIN32_LOADER="false"
 
 # Set net tarball
-LB_NET_TARBALL="true"
+LB_NET_TARBALL="false"
 
 # Set onie
 LB_ONIE="false"
@@ -104,7 +104,7 @@ LB_ONIE="false"
 LB_ONIE_KERNEL_CMDLINE=""
 
 # Set inclusion of firmware packages in debian-installer
-LB_FIRMWARE_BINARY="true"
+LB_FIRMWARE_BINARY="false"
 
 # Set inclusion of firmware packages in the live image
 LB_FIRMWARE_CHROOT="true"
