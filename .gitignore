@@ -6,3 +6,5 @@ cache/
 *.iso.zsync
 *.log
 config/includes.chroot/tmp/src/
+
+/mind.md
