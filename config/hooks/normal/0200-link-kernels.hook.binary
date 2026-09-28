@@ -19,15 +19,15 @@ cd "${LIVE_DIR}"
 KERNEL=$(ls vmlinuz-* 2>/dev/null | grep -Ev '^(vmlinuz|vmlinuz\.tmp)$' | head -n 1 || true)
 INITRD=$(ls initrd.img-* 2>/dev/null | grep -Ev '^(initrd\.img|initrd\.img\.tmp)$' | head -n 1 || true)
 
-if [ -n "${KERNEL}" ]; then
-    echo "  -> Linking ${KERNEL} to vmlinuz"
-    cp -l "${KERNEL}" vmlinuz 2>/dev/null || cp "${KERNEL}" vmlinuz
+if [ -z "${KERNEL}" ] || [ -z "${INITRD}" ]; then
+    echo "[HOOK ERROR] Versioned kernel or initrd is missing in ${PWD}"
+    exit 1
 fi
 
-if [ -n "${INITRD}" ]; then
-    echo "  -> Linking ${INITRD} to initrd.img"
-    cp -l "${INITRD}" initrd.img 2>/dev/null || cp "${INITRD}" initrd.img
-fi
+cp -f -- "${KERNEL}" vmlinuz
+cp -f -- "${INITRD}" initrd.img
 
-echo "[HOOK] Canonical kernel links verified:"
+test -s vmlinuz && test -s initrd.img
+
+echo "[HOOK] Canonical kernel files verified:"
 ls -lh vmlinuz initrd.img
