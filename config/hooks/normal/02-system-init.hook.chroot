@@ -26,6 +26,7 @@ echo "humanix ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/01-humanix-user
 chmod 0440 /etc/sudoers.d/01-humanix-user
 
 systemctl enable NetworkManager.service
+systemctl enable systemd-resolved.service
 systemctl enable sys-sentinel.service
 
 systemctl disable systemd-networkd.service || true
