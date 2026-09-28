@@ -12,7 +12,6 @@ procps
 bash
 nano
 sudo
-systemd-resolved
 systemd-zram-generator
 systemd-oomd
 parted
@@ -21,6 +20,7 @@ dosfstools
 grub-efi-amd64
 efibootmgr
 network-manager
+dnsmasq-base
 wpasupplicant
 wireless-regdb
 btop
