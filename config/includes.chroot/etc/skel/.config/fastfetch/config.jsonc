@@ -3,6 +3,28 @@
   "logo": {
     "type": "file",
     "source": "~/.config/fastfetch/humanix.txt",
-    "color": { "1": "38;2;153;255;102" }
-  }
+    "color": {
+      "1": "38;2;153;255;102"
+    },
+    "padding": {
+      "right": 4
+    }
+  },
+  "display": {
+    "separator": ": "
+  },
+  "modules": [
+    "title",
+    "separator",
+    "os",
+    "host",
+    "kernel",
+    "uptime",
+    "packages",
+    "shell",
+    "terminal",
+    "cpu",
+    "memory",
+    "disk"
+  ]
 }

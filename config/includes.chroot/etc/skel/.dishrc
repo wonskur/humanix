@@ -1,5 +1,5 @@
 # Humanix dish configuration
-export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games
 export EDITOR=nano
 export PAGER=less
 
