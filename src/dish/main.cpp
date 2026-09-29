@@ -573,7 +573,21 @@ void execute_commands(const vector<Command>& commands, bool background) {
             argv_ptrs.push_back(nullptr);
 
             if (!argv_ptrs.empty() && argv_ptrs[0] != nullptr) {
-                execvp(argv_ptrs[0], argv_ptrs.data());
+                if (strchr(argv_ptrs[0], '/') != nullptr) {
+                    execv(argv_ptrs[0], argv_ptrs.data());
+                    if (errno == ENOEXEC) {
+                        vector<char*> bash_argv;
+                        bash_argv.reserve(argv_ptrs.size() + 1);
+                        bash_argv.push_back(const_cast<char*>("bash"));
+                        for (const string& arg : commands[i].argv) {
+                            bash_argv.push_back(const_cast<char*>(arg.c_str()));
+                        }
+                        bash_argv.push_back(nullptr);
+                        execv("/bin/bash", bash_argv.data());
+                    }
+                } else {
+                    execvp(argv_ptrs[0], argv_ptrs.data());
+                }
                 fprintf(stderr, "%s: %s\n", argv_ptrs[0], strerror(errno));
             }
             _exit(127);
