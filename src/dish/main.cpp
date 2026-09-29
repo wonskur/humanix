@@ -5,7 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <dirent.h>
+
 #include <fcntl.h>
 #include <fstream>
 #include <iostream>
@@ -31,9 +31,6 @@ struct termios orig_termios;
 bool termios_saved = false;
 int last_exit_status = 0;
 pid_t last_background_pid = 0;
-
-string completion_suggestion = "";
-vector<string> path_binaries;
 
 map<string, string> aliases;
 
@@ -82,53 +79,16 @@ void print_prompt() {
     const char* user = getenv("USER");
     cout << "\033[1;32m" << (user ? user : "humanix") << "@" << get_hostname_str() << "\033[0m:"
          << "\033[1;34m" << get_current_dir() << "\033[0m> ";
+    cout << "\0337";
     cout.flush();
 }
 
 void redraw_line(const string& input, size_t cursor_pos) {
-    cout << "\r\033[2K";
-    print_prompt();
-    cout << input;
-    if (!completion_suggestion.empty()) {
-        cout << "\033[90m" << completion_suggestion << "\033[0m";
-    }
-
-    size_t total = input.size() + completion_suggestion.size();
-    size_t left = (total > cursor_pos) ? (total - cursor_pos) : 0;
-    if (left > 0) {
-        cout << "\033[" << left << "D";
+    cout << "\0338\033[J" << input << "\0338";
+    if (cursor_pos > 0 && cursor_pos <= input.size()) {
+        cout << input.substr(0, cursor_pos);
     }
     cout.flush();
-}
-
-void add_to_path_cache(const string& dir) {
-    if (dir.empty()) return;
-    DIR* d = opendir(dir.c_str());
-    if (!d) return;
-    struct dirent* entry;
-    while ((entry = readdir(d)) != nullptr) {
-        if (entry->d_name[0] != '.') {
-            path_binaries.emplace_back(entry->d_name);
-        }
-    }
-    closedir(d);
-}
-
-void init_path_cache() {
-    path_binaries.clear();
-    const char* path_env = getenv("PATH");
-    if (!path_env) return;
-
-    string path_str = path_env;
-    size_t start = 0, end = 0;
-    while ((end = path_str.find(':', start)) != string::npos) {
-        add_to_path_cache(path_str.substr(start, end - start));
-        start = end + 1;
-    }
-    add_to_path_cache(path_str.substr(start));
-
-    sort(path_binaries.begin(), path_binaries.end());
-    path_binaries.erase(unique(path_binaries.begin(), path_binaries.end()), path_binaries.end());
 }
 
 void install_shell_signal_handlers() {
@@ -636,68 +596,6 @@ void execute_commands(const vector<Command>& commands, bool background) {
     give_terminal_to(shell_pgid);
 }
 
-void update_autosuggestion(const string& input) {
-    completion_suggestion.clear();
-    if (input.empty()) return;
-
-    for (int i = static_cast<int>(history.size()) - 1; i >= 0; --i) {
-        const string& h = history[i];
-        if (h.size() > input.size() && h.compare(0, input.size(), input) == 0) {
-            completion_suggestion = h.substr(input.size());
-            return;
-        }
-    }
-
-    if (input.find(' ') == string::npos) {
-        for (const auto& b : builtin_names) {
-            if (b.size() > input.size() && b.compare(0, input.size(), input) == 0) {
-                completion_suggestion = b.substr(input.size());
-                return;
-            }
-        }
-        for (const auto& bin : path_binaries) {
-            if (bin.size() > input.size() && bin.compare(0, input.size(), input) == 0) {
-                completion_suggestion = bin.substr(input.size());
-                return;
-            }
-        }
-    }
-
-    size_t last_space = input.find_last_of(" \t");
-    string last_token = (last_space == string::npos) ? input : input.substr(last_space + 1);
-    if (!last_token.empty()) {
-        string dir_part = ".";
-        string file_prefix = last_token;
-        size_t slash = last_token.find_last_of('/');
-        if (slash != string::npos) {
-            dir_part = last_token.substr(0, slash);
-            if (dir_part.empty()) dir_part = "/";
-            file_prefix = last_token.substr(slash + 1);
-        }
-
-        if (dir_part == "~") {
-            const char* home = getenv("HOME");
-            dir_part = home ? home : ".";
-        }
-
-        DIR* dir = opendir(dir_part.c_str());
-        if (dir) {
-            struct dirent* entry;
-            while ((entry = readdir(dir)) != nullptr) {
-                string name = entry->d_name;
-                if (name != "." && name != ".." &&
-                    name.size() > file_prefix.size() &&
-                    name.compare(0, file_prefix.size(), file_prefix) == 0) {
-                    completion_suggestion = name.substr(file_prefix.size());
-                    closedir(dir);
-                    return;
-                }
-            }
-            closedir(dir);
-        }
-    }
-}
-
 void execute_line(const string& input) {
     vector<string> tokens = split_shell_tokens(input);
     if (tokens.empty()) return;
@@ -738,7 +636,6 @@ void execute_line(const string& input) {
 int main() {
     setlocale(LC_ALL, "");
     install_shell_signal_handlers();
-    init_path_cache();
 
     shell_pgid = getpgrp();
 
@@ -763,7 +660,7 @@ int main() {
     while (true) {
         string input;
         size_t cursor = 0;
-        completion_suggestion.clear();
+
         print_prompt();
 
         struct termios raw = orig_termios;
@@ -775,13 +672,13 @@ int main() {
             if (c == 4) {
                 if (input.empty()) { input = "exit"; break; }
             } else if (c == 3) {
-                completion_suggestion.clear();
-                cout << "^C\n";
+
+                cout << "\0338\033[J^C\n";
                 input.clear();
                 cursor = 0;
                 print_prompt();
             } else if (c == '\n' || c == '\r') {
-                completion_suggestion.clear();
+
                 redraw_line(input, input.size());
                 cout << "\033[K\n";
                 break;
@@ -794,17 +691,11 @@ int main() {
                     }
                     input.erase(cursor - bytes_to_erase, bytes_to_erase);
                     cursor -= bytes_to_erase;
-                    update_autosuggestion(input);
+
                     redraw_line(input, cursor);
                 }
             } else if (c == '\t') {
-                if (!completion_suggestion.empty()) {
-                    input += completion_suggestion;
-                    cursor = input.size();
-                    completion_suggestion.clear();
-                    update_autosuggestion(input);
-                    redraw_line(input, cursor);
-                }
+                continue;
             } else if (c == '\x1b') {
                 string seq;
                 seq += c;
@@ -828,7 +719,7 @@ int main() {
                         }
                         input = history[history_idx];
                         cursor = input.size();
-                        completion_suggestion.clear();
+
                         redraw_line(input, cursor);
                     }
                 } else if (seq == "\x1b[B") {
@@ -841,7 +732,7 @@ int main() {
                             input = saved_input;
                         }
                         cursor = input.size();
-                        completion_suggestion.clear();
+
                         redraw_line(input, cursor);
                     }
                 } else if (seq == "\x1b[D") {
@@ -852,13 +743,7 @@ int main() {
                         redraw_line(input, cursor);
                     }
                 } else if (seq == "\x1b[C") {
-                    if (cursor == input.size() && !completion_suggestion.empty()) {
-                        input += completion_suggestion;
-                        cursor = input.size();
-                        completion_suggestion.clear();
-                        update_autosuggestion(input);
-                        redraw_line(input, cursor);
-                    } else if (cursor < input.size()) {
+                    if (cursor < input.size()) {
                         size_t step = get_utf8_char_len(static_cast<unsigned char>(input[cursor]));
                         cursor += step;
                         redraw_line(input, cursor);
@@ -876,7 +761,6 @@ int main() {
                 else input.insert(cursor, utf8_char);
                 cursor += utf8_char.size();
 
-                update_autosuggestion(input);
                 redraw_line(input, cursor);
             }
         }
