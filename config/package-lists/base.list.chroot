@@ -40,3 +40,4 @@ pciutils
 usbutils
 smartmontools
 fastfetch
+rsync

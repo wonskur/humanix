@@ -22,9 +22,17 @@ struct BlockDevice {
 };
 
 int run_cmd(const std::string& cmd) {
-    std::cout << "\033[90m[EXEC] " << cmd << "\033[0m" << std::endl;
     int ret = std::system(cmd.c_str());
+    if (ret == -1 || !WIFEXITED(ret)) return 1;
     return WEXITSTATUS(ret);
+}
+
+bool command_exists(const std::string& name) {
+    return std::system(("command -v " + name + " >/dev/null 2>&1").c_str()) == 0;
+}
+
+void print_step(int current, const std::string& title) {
+    std::cout << "\n\033[1;36m[" << current << "/6]\033[0m " << title << std::endl;
 }
 
 std::string get_cmd_output(const std::string& cmd) {
@@ -120,9 +128,26 @@ int main() {
     }
 
     std::cout << "\033[1;36m"
-              << "----------------------------------------------------\n"
-              << "         HUMANIX NATIVE BARE-METAL INSTALLER        \n"
-              << "____________________________________________________\033[0m\n\n";
+              << "==============================================\n"
+              << "              HUMANIX INSTALLER               \n"
+              << "          Native UEFI installation            \n"
+              << "==============================================\033[0m\n"
+              << "Install Humanix onto a physical drive.\n\n";
+
+    const std::vector<std::string> required = {
+        "wipefs", "parted", "udevadm", "mkfs.vfat", "mkfs.ext4",
+        "mount", "rsync", "blkid", "chroot", "grub-install", "update-grub"
+    };
+    std::vector<std::string> missing;
+    for (const auto& command : required) {
+        if (!command_exists(command)) missing.push_back(command);
+    }
+    if (!missing.empty()) {
+        std::cerr << "\033[1;31mInstaller tools are missing:\033[0m";
+        for (const auto& command : missing) std::cerr << " " << command;
+        std::cerr << "\nBoot a complete Humanix installer image and try again.\n";
+        return 1;
+    }
 
     auto disks = scan_disks();
     if (disks.empty()) {
@@ -130,9 +155,11 @@ int main() {
         return 1;
     }
 
-    std::cout << "Available target drives:\n";
+    std::cout << "\033[1mAvailable drives\033[0m\n";
     for (size_t i = 0; i < disks.size(); ++i) {
-        std::cout << "  [" << (i + 1) << "] " << disks[i].path << " (" << disks[i].size_human << ") - " << disks[i].model << "\n";
+        std::cout << "  \033[1;36m" << (i + 1) << ")\033[0m "
+                  << disks[i].path << "  " << disks[i].size_human
+                  << "  \033[90m" << disks[i].model << "\033[0m\n";
     }
 
     std::cout << "\nSelect drive number to install Humanix [1-" << disks.size() << "]: ";
@@ -144,11 +171,13 @@ int main() {
 
     BlockDevice target = disks[choice - 1];
 
-    std::cout << "\n\033[1;31m[WARNING] ALL DATA ON " << target.path << " WILL BE PERMANENTLY DESTROYED!\033[0m\n";
-    std::cout << "Type 'YES' to confirm partitioning and installation: ";
+    std::cout << "\n\033[1;31mWARNING: ALL DATA ON " << target.path
+              << " WILL BE ERASED.\033[0m\n"
+              << "Review the selected drive above before continuing.\n"
+              << "To confirm, type the drive path (" << target.path << "): ";
     std::string confirm;
     std::cin >> confirm;
-    if (confirm != "YES") {
+    if (confirm != target.path) {
         std::cout << "Installation cancelled by user." << std::endl;
         return 0;
     }
@@ -156,16 +185,19 @@ int main() {
     std::string p_efi = get_part_name(target.path, 1);
     std::string p_root = get_part_name(target.path, 2);
 
-    std::cout << "\n[1/6] Partitioning disk with GPT layout..." << std::endl;
-    run_cmd("wipefs -a -f " + target.path);
-    run_cmd("parted -s " + target.path + " mklabel gpt");
-    run_cmd("parted -s " + target.path + " mkpart ESP fat32 1MiB 513MiB");
-    run_cmd("parted -s " + target.path + " set 1 esp on");
-    run_cmd("parted -s " + target.path + " mkpart ROOT ext4 513MiB 100%");
-    run_cmd("udevadm settle");
+    print_step(1, "Partitioning the target drive");
+    if (run_cmd("wipefs -a -f " + target.path) != 0 ||
+        run_cmd("parted -s " + target.path + " mklabel gpt") != 0 ||
+        run_cmd("parted -s " + target.path + " mkpart ESP fat32 1MiB 513MiB") != 0 ||
+        run_cmd("parted -s " + target.path + " set 1 esp on") != 0 ||
+        run_cmd("parted -s " + target.path + " mkpart ROOT ext4 513MiB 100%") != 0 ||
+        run_cmd("udevadm settle") != 0) {
+        std::cerr << "\033[1;31mPartitioning failed.\033[0m\n";
+        return 1;
+    }
     sleep(1);
 
-    std::cout << "[2/6] Formatting partitions..." << std::endl;
+    print_step(2, "Formatting EFI and root partitions");
     if (run_cmd("mkfs.vfat -F 32 -n EFI " + p_efi) != 0) {
         std::cerr << "[-] Failed to format EFI partition." << std::endl;
         return 1;
@@ -175,34 +207,49 @@ int main() {
         return 1;
     }
 
-    std::cout << "[3/6] Mounting target filesystems..." << std::endl;
+    print_step(3, "Mounting target filesystems");
     const std::string mnt = "/mnt/humanix_target";
     fs::create_directories(mnt);
-    run_cmd("mount " + p_root + " " + mnt);
+    if (run_cmd("mount " + p_root + " " + mnt) != 0) {
+        std::cerr << "\033[1;31mCould not mount the root partition.\033[0m\n";
+        return 1;
+    }
     fs::create_directories(mnt + "/boot/efi");
-    run_cmd("mount " + p_efi + " " + mnt + "/boot/efi");
-
-    std::cout << "[4/6] Synchronizing OS tree (this may take a few minutes)..." << std::endl;
-    std::string rsync_cmd = "rsync -aAXH --info=progress2 "
-                            "--exclude={'/dev/*','/proc/*','/sys/*','/tmp/*','/run/*','/mnt/*','/media/*','/lost+found'} "
-                            "/ " + mnt + "/";
-    if (run_cmd(rsync_cmd) != 0) {
-        std::cerr << "[-] Rsync synchronization failed." << std::endl;
+    if (run_cmd("mount " + p_efi + " " + mnt + "/boot/efi") != 0) {
+        std::cerr << "\033[1;31mCould not mount the EFI partition.\033[0m\n";
+        run_cmd("umount -R " + mnt + " 2>/dev/null || true");
         return 1;
     }
 
-    std::cout << "[5/6] Generating /etc/fstab..." << std::endl;
+    print_step(4, "Copying Humanix to the target");
+    std::string rsync_cmd = "rsync -aAXH --numeric-ids --info=progress2 "
+                            "--exclude=/dev/*** --exclude=/proc/*** --exclude=/sys/*** "
+                            "--exclude=/tmp/*** --exclude=/run/*** --exclude=/mnt/*** "
+                            "--exclude=/media/*** --exclude=/lost+found "
+                            "/ " + mnt + "/";
+    if (run_cmd(rsync_cmd) != 0) {
+        std::cerr << "\n\033[1;31mCopy failed; installation did not finish.\033[0m\n";
+        run_cmd("umount -R " + mnt + " 2>/dev/null || true");
+        return 1;
+    }
+
+    print_step(5, "Writing filesystem configuration");
     std::string uuid_root = get_cmd_output("blkid -s UUID -o value " + p_root);
     std::string uuid_efi = get_cmd_output("blkid -s UUID -o value " + p_efi);
 
     std::ofstream fstab(mnt + "/etc/fstab");
+    if (!fstab) {
+        std::cerr << "\033[1;31mCould not write target /etc/fstab.\033[0m\n";
+        run_cmd("umount -R " + mnt + " 2>/dev/null || true");
+        return 1;
+    }
     fstab << "# /etc/fstab: generated by humanix-installer\n"
           << "UUID=" << uuid_root << " / ext4 noatime,errors=remount-ro 0 1\n"
           << "UUID=" << uuid_efi << " /boot/efi vfat umask=0077 0 2\n"
           << "tmpfs /tmp tmpfs defaults,nosuid,nodev 0 0\n";
     fstab.close();
 
-    std::cout << "[6/6] Installing UEFI bootloader and kernel initramfs..." << std::endl;
+    print_step(6, "Installing the UEFI bootloader");
     run_cmd("mount --bind /dev " + mnt + "/dev");
     run_cmd("mount --bind /dev/pts " + mnt + "/dev/pts");
     run_cmd("mount --bind /proc " + mnt + "/proc");
@@ -210,8 +257,12 @@ int main() {
     run_cmd("mount --bind /run " + mnt + "/run");
     run_cmd("chroot " + mnt + " apt-get purge -y live-boot live-boot-initramfs-tools");
     std::string grub_cmd = "chroot " + mnt + " grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Humanix --recheck";
-    run_cmd(grub_cmd);
-    run_cmd("chroot " + mnt + " update-grub");
+    if (run_cmd(grub_cmd) != 0 ||
+        run_cmd("chroot " + mnt + " update-grub") != 0) {
+        std::cerr << "\033[1;31mBootloader installation failed.\033[0m\n";
+        run_cmd("umount -R " + mnt + " 2>/dev/null || true");
+        return 1;
+    }
     std::cout << "[*] Unmounting targets..." << std::endl;
     run_cmd("umount -R " + mnt + " 2>/dev/null || true");
 
