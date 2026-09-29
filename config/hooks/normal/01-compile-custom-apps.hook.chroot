@@ -25,14 +25,6 @@ if [ -d "/tmp/src/dish" ]; then
     fi
 fi
 
-if [ -d "/tmp/src/humanix-fetch" ]; then
-    echo "  -> Building humanix-fetch..."
-    cd /tmp/src/humanix-fetch
-    make -j"$(nproc)" install clean || {
-        g++ -O2 -Wall -Wextra -std=c++17 main.cpp -o /usr/local/bin/humanix-fetch
-    }
-fi
-
 if [ -d "/tmp/src/humanix-installer" ]; then
     echo "  -> Building humanix-installer..."
     cd /tmp/src/humanix-installer
