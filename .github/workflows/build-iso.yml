@@ -59,7 +59,8 @@ jobs:
             "
 
       - name: Report ISO size
-        run: stat -c 'Built ISO size: %s bytes (%n)' humanix-live-amd64.iso
+        run: |
+          stat -c 'Built ISO size: %s bytes (%n)' humanix-live-amd64.iso
 
       - name: Compute Checksum
         run: |
