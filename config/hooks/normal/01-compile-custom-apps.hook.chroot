@@ -32,6 +32,13 @@ if [ -d "/tmp/src/humanix-installer" ]; then
         g++ -O2 -Wall -Wextra -std=c++17 main.cpp -o /usr/local/sbin/humanix-installer
     }
 fi
+if [ -d "/tmp/src/humanix-doctor" ]; then
+    echo "  -> Building humanix-doctor..."
+    cd /tmp/src/humanix-doctor
+    make -j"$(nproc)" install clean || {
+        g++ -O2 -Wall -Wextra -std=c++17 main.cpp -o /usr/local/sbin/humanix-doctor
+    }
+fi
 
 echo "[HOOK] Purging sources and temporary build toolchain..."
 rm -rf /tmp/src
