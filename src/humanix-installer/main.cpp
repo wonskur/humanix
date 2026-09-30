@@ -249,13 +249,33 @@ int main() {
           << "tmpfs /tmp tmpfs defaults,nosuid,nodev 0 0\n";
     fstab.close();
 
+    std::cout << "\n\033[1;36m[*] Preparing the installed system\033[0m\n";
+    for (const auto& dir : {"dev", "dev/pts", "proc", "sys", "run", "tmp", "mnt", "media"}) {
+        fs::create_directories(mnt + "/" + dir);
+    }
+    chmod((mnt + "/tmp").c_str(), 01777);
+
+    const std::vector<std::string> bind_mounts = {
+        "mount --bind /dev " + mnt + "/dev",
+        "mount --bind /dev/pts " + mnt + "/dev/pts",
+        "mount --bind /proc " + mnt + "/proc",
+        "mount --bind /sys " + mnt + "/sys",
+        "mount --bind /run " + mnt + "/run"
+    };
+    for (const auto& command : bind_mounts) {
+        if (run_cmd(command) != 0) {
+            std::cerr << "\033[1;31mCould not prepare the target chroot.\033[0m\n";
+            run_cmd("umount -R " + mnt + " 2>/dev/null || true");
+            return 1;
+        }
+    }
+
     print_step(6, "Installing the UEFI bootloader");
-    run_cmd("mount --bind /dev " + mnt + "/dev");
-    run_cmd("mount --bind /dev/pts " + mnt + "/dev/pts");
-    run_cmd("mount --bind /proc " + mnt + "/proc");
-    run_cmd("mount --bind /sys " + mnt + "/sys");
-    run_cmd("mount --bind /run " + mnt + "/run");
-    run_cmd("chroot " + mnt + " apt-get purge -y live-boot live-boot-initramfs-tools");
+    if (run_cmd("chroot " + mnt + " apt-get purge -y live-boot live-boot-initramfs-tools") != 0) {
+        std::cerr << "\033[1;31mCould not remove live-only packages.\033[0m\n";
+        run_cmd("umount -R " + mnt + " 2>/dev/null || true");
+        return 1;
+    }
     std::string grub_cmd = "chroot " + mnt + " grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Humanix --recheck";
     if (run_cmd(grub_cmd) != 0 ||
         run_cmd("chroot " + mnt + " update-grub") != 0) {
