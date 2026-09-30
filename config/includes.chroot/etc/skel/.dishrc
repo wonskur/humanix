@@ -13,6 +13,7 @@ alias rg='rg --smart-case'
 alias mem='sentinel-ctl STATUS'
 alias sentinel='journalctl -u sys-sentinel -f'
 alias installer='sudo humanix-installer'
+alias doctor='humanix-doctor'
 alias reboot='sudo reboot'
 alias poweroff='sudo poweroff'
 if command -v fastfetch >/dev/null 2>&1; then
