@@ -537,9 +537,42 @@ int main() {
     chmod((mnt + "/etc/sudoers.d/01-humanix-user").c_str(), 0440);
     fs::remove(mnt + "/etc/systemd/system/getty@tty1.service.d/autologin.conf");
 
+    const std::string installer_path = mnt + "/usr/local/sbin/humanix-installer";
+    fs::remove(installer_path);
+    for (const auto& dishrc : {mnt + "/etc/skel/.dishrc", mnt + "/home/" + username + "/.dishrc"}) {
+        std::ifstream input(dishrc);
+        if (!input) continue;
+        std::string content;
+        std::string line;
+        while (std::getline(input, line)) {
+            if (line.rfind("alias installer=", 0) == 0) continue;
+            content += line + "\n";
+        }
+        input.close();
+        std::ofstream output(dishrc);
+        if (!output) {
+            std::cerr << "Could not remove the live installer shortcut.\n";
+            run_cmd("umount -R " + mnt + " 2>/dev/null || true");
+            return 1;
+        }
+        output << content;
+    }
+    fs::create_directories(mnt + "/etc/default/grub.d");
+    std::ofstream grub_defaults(mnt + "/etc/default/grub.d/99-humanix.cfg");
+    if (!grub_defaults) {
+        std::cerr << "Could not configure the GRUB menu.\n";
+        run_cmd("umount -R " + mnt + " 2>/dev/null || true");
+        return 1;
+    }
+    grub_defaults << "GRUB_TERMINAL=console\n"
+                  << "GRUB_TIMEOUT_STYLE=menu\n"
+                  << "GRUB_COLOR_NORMAL=\"light-gray/black\"\n"
+                  << "GRUB_COLOR_HIGHLIGHT=\"black/light-green\"\n";
+    grub_defaults.close();
+
     print_step(6, "Installing the UEFI bootloader");
     if (run_cmd("chroot " + mnt +
-                " apt-get purge -y live-boot live-boot-initramfs-tools live-config live-config-systemd") != 0) {
+                " apt-get purge -y live-boot live-boot-initramfs-tools live-config live-config-systemd live-tools") != 0) {
         std::cerr << "Could not remove live-only packages.\n";
         run_cmd("umount -R " + mnt + " 2>/dev/null || true");
         return 1;
