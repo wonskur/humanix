@@ -276,7 +276,7 @@ int main() {
         run_cmd("umount -R " + mnt + " 2>/dev/null || true");
         return 1;
     }
-    std::string grub_cmd = "chroot " + mnt + " grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Humanix --recheck";
+    std::string grub_cmd = "chroot " + mnt + " grub-install --target=x86_64-efi --efi-directory=/boot/efi --removable --no-nvram --recheck";
     if (run_cmd(grub_cmd) != 0 ||
         run_cmd("chroot " + mnt + " update-grub") != 0) {
         std::cerr << "\033[1;31mBootloader installation failed.\033[0m\n";
