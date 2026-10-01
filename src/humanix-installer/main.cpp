@@ -160,6 +160,26 @@ bool valid_hostname(const std::string& value) {
     return true;
 }
 
+bool valid_timezone(const std::string& value) {
+    if (value.empty() || value.front() == '/' || value.back() == '/' || value.find("..") != std::string::npos) return false;
+    for (unsigned char c : value) {
+        if (!(std::isalnum(c) || c == '/' || c == '_' || c == '-' || c == '+')) return false;
+    }
+    return fs::exists("/usr/share/zoneinfo/" + value);
+}
+
+bool parse_yes_no(const std::string& value, bool& result) {
+    if (value.empty() || value == "y" || value == "Y" || value == "yes" || value == "Yes" || value == "YES") {
+        result = true;
+        return true;
+    }
+    if (value == "n" || value == "N" || value == "no" || value == "No" || value == "NO") {
+        result = false;
+        return true;
+    }
+    return false;
+}
+
 bool read_password(const std::string& prompt, std::string& value) {
     char* first = getpass(prompt.c_str());
     if (!first || !*first) return false;
@@ -297,6 +317,26 @@ int main() {
     if (!read_password("Root password: ", root_password) ||
         !read_password("User password: ", user_password)) return 1;
 
+    std::string answer, timezone, keyboard_layout;
+    bool sudo_requires_password = true;
+    if (!read_line("Require password for sudo? [Y/n]: ", answer) ||
+        !parse_yes_no(answer, sudo_requires_password)) {
+        std::cerr << "Enter y or n for the sudo password setting.\n";
+        return 1;
+    }
+    if (!read_line("Timezone [Europe/Moscow]: ", timezone)) return 1;
+    if (timezone.empty()) timezone = "Europe/Moscow";
+    if (!valid_timezone(timezone)) {
+        std::cerr << "Unknown timezone. Use a zoneinfo name such as Europe/Moscow or UTC.\n";
+        return 1;
+    }
+    if (!read_line("Keyboard layout [us,ru]: ", keyboard_layout)) return 1;
+    if (keyboard_layout.empty()) keyboard_layout = "us,ru";
+    if (keyboard_layout != "us" && keyboard_layout != "ru" && keyboard_layout != "us,ru") {
+        std::cerr << "Keyboard layout must be us, ru, or us,ru.\n";
+        return 1;
+    }
+
     uint64_t efi_mib = 512, root_gib = 0, swap_gib = 0, home_gib = 0;
     std::cout << "\nSizes are whole MiB or GiB values. EFI must be at least 260 MiB.\n"
               << "Root size 0 means use all remaining space after swap and home.\n";
@@ -350,7 +390,9 @@ int main() {
     if (swap_mib) std::cout << "Swap: " << swap_mib / 1024 << " GiB\n";
     if (home_mib) std::cout << "Home: " << home_mib / 1024 << " GiB -> /home\n";
     const uint64_t unused_mib = usable_mib - root_mib - swap_mib - home_mib;
-    std::cout << "Hostname: " << hostname << "\nUser: " << username << "\n";
+    std::cout << "Hostname: " << hostname << "\nUser: " << username << "\n"
+              << "Sudo password: " << (sudo_requires_password ? "required" : "not required") << "\n"
+              << "Timezone: " << timezone << "\nKeyboard: " << keyboard_layout << "\n";
     if (unused_mib) std::cout << "Unallocated: " << unused_mib << " MiB\n";
     std::cout << "\033[1;31mALL DATA ON " << target.path << " WILL BE ERASED.\033[0m\n"
               << "Type the disk path to confirm (" << target.path << "): ";
@@ -474,6 +516,29 @@ int main() {
                << "\n\n::1 localhost ip6-localhost ip6-loopback\n";
     hostname_file.close();
     hosts_file.close();
+    std::ofstream timezone_file(mnt + "/etc/timezone");
+    std::ofstream keyboard_file(mnt + "/etc/default/keyboard");
+    if (!timezone_file || !keyboard_file) {
+        std::cerr << "Could not configure timezone or keyboard layout.\n";
+        run_cmd("umount -R " + mnt + " 2>/dev/null || true");
+        return 1;
+    }
+    timezone_file << timezone << "\n";
+    keyboard_file << "XKBMODEL=\"pc105\"\n"
+                  << "XKBLAYOUT=\"" << keyboard_layout << "\"\n"
+                  << "XKBVARIANT=\"\"\n"
+                  << "XKBOPTIONS=\"" << (keyboard_layout == "us,ru" ? "grp:alt_shift_toggle" : "") << "\"\n"
+                  << "BACKSPACE=\"guess\"\n";
+    timezone_file.close();
+    keyboard_file.close();
+    std::error_code localtime_error;
+    fs::remove(mnt + "/etc/localtime", localtime_error);
+    fs::create_symlink("/usr/share/zoneinfo/" + timezone, mnt + "/etc/localtime", localtime_error);
+    if (localtime_error) {
+        std::cerr << "Could not set local timezone link.\n";
+        run_cmd("umount -R " + mnt + " 2>/dev/null || true");
+        return 1;
+    }
 
     std::cout << "\n\033[1;36m[*] Preparing the installed system\033[0m\n";
     for (const auto& dir : {"dev", "dev/pts", "proc", "sys", "run", "tmp", "mnt", "media"}) {
@@ -532,7 +597,7 @@ int main() {
         run_cmd("umount -R " + mnt + " 2>/dev/null || true");
         return 1;
     }
-    sudoers << username << " ALL=(ALL) NOPASSWD: ALL\n";
+    sudoers << username << (sudo_requires_password ? " ALL=(ALL:ALL) ALL\n" : " ALL=(ALL:ALL) NOPASSWD: ALL\n");
     sudoers.close();
     chmod((mnt + "/etc/sudoers.d/01-humanix-user").c_str(), 0440);
     fs::remove(mnt + "/etc/systemd/system/getty@tty1.service.d/autologin.conf");
