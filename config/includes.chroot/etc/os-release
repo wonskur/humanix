@@ -1,9 +1,9 @@
 NAME="Humanix"
-PRETTY_NAME="Humanix GNU/Linux 1.0 (Trixie)"
+PRETTY_NAME="Humanix GNU/Linux 1.0"
 ID=humanix
 ID_LIKE=debian
 VERSION_ID="1.0"
-VERSION="1.0 (Testing)"
+VERSION="1.0"
 VERSION_CODENAME=trixie
 HOME_URL="https://github.com/wonskur/humanix"
 SUPPORT_URL="https://github.com/wonskur/humanix/issues"
