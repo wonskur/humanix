@@ -1,22 +1,53 @@
-# Humanix GNU/Linux 1.0
+# Humanix GNU/Linux
 
-Humanix is a small Linux system based on Debian Trixie. It is made for daily use and for learning by changing a real Linux system.
+Humanix is a small Linux system. It is based on Debian Trixie.
+It is made for daily use and for learning.
+You can change a real Linux system and see how it works.
 
-Humanix starts from a live ISO. It includes a small command shell, system tools, and an installer.
+![Humanix Logo](./docs/icon.svg)
 
-## Included tools
+<p align="center">
+  <img src="./docs/ild.png" alt="I love Debian" width="480">
+  <br>
+  <em>Built on Debian Trixie</em>
+</p>
 
-- `dish` is the Humanix command shell.
-- `humanix-doctor` checks common system problems.
-- `sys-sentinel` and `sentinel-ctl` show system status.
-- `humanix-installer` installs Humanix to a disk.
+Humanix starts from a live ISO.
+It has a small command shell, system tools, and an installer.
+
+---
+
+## Included Tools
+
+- `dish` — the Humanix command shell.
+- `humanix-doctor` — checks common system problems.
+- `sys-sentinel` and `sentinel-ctl` — show system status.
+- `humanix-installer` — installs Humanix to a disk.
+
+---
 
 ## Get the ISO
 
-ISO files are built by GitHub Actions. Open the **Actions** tab and choose **Build Humanix Live ISO**. A build started from the `main` branch is available as a workflow artifact.
+ISO files are built by GitHub Actions.
 
-## Install safely
+1. Open the **Actions** tab.
+2. Choose **Build Humanix Live ISO**.
+3. A build started from the `main` branch is saved as a workflow artifact.
 
-The installer erases every partition on the selected disk. Try it in a virtual machine first, or use an empty disk. Back up any files you need before installing.
+---
 
-Humanix is a personal project. You can read and change its configuration and source code in this repository.
+## Install Safely
+
+Please read this before you install.
+
+- The installer erases every partition on the selected disk.
+- Try it in a virtual machine first.
+- Or use an empty disk.
+- Back up any files you need before installing.
+
+---
+
+## About This Project
+
+Humanix is a personal project.
+You can read and change its configuration and source code in this repository.
