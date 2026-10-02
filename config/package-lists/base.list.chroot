@@ -18,7 +18,10 @@ parted
 e2fsprogs
 dosfstools
 grub-efi-amd64
+grub-efi-amd64-signed
+shim-signed
 efibootmgr
+firmware-linux-free
 network-manager
 dnsmasq-base
 wpasupplicant

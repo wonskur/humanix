@@ -7,7 +7,7 @@ lb config noauto \
     --architectures amd64 \
     --linux-flavours amd64 \
     --binary-images iso-hybrid \
-    --bootloader grub-efi \
+    --bootloaders "syslinux,grub-efi" \
     --bootappend-live "boot=live components hostname=humanix username=humanix quiet splash" \
     --iso-application "Humanix Live Appliance" \
     --iso-volume "HUMANIX_LIVE" \
