@@ -4,14 +4,6 @@ Humanix is a small Linux system. It is based on Debian Trixie.
 It is made for daily use and for learning.
 You can change a real Linux system and see how it works.
 
-![Humanix Logo](./docs/icon.svg)
-
-<p align="center">
-  <img src="./docs/ild.png" alt="I love Debian" width="480">
-  <br>
-  <em>Built on Debian Trixie</em>
-</p>
-
 Humanix starts from a live ISO.
 It has a small command shell, system tools, and an installer.
 
@@ -51,3 +43,5 @@ Please read this before you install.
 
 Humanix is a personal project.
 You can read and change its configuration and source code in this repository.
+
+![Humanix Logo](./docs/icon.svg)
