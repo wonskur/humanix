@@ -24,8 +24,17 @@ if [ -z "${KERNEL}" ] || [ -z "${INITRD}" ]; then
     exit 1
 fi
 
-cp -f -- "${KERNEL}" vmlinuz
-cp -f -- "${INITRD}" initrd.img
+if [ -e vmlinuz ] && [ "${KERNEL}" -ef vmlinuz ]; then
+    echo "[HOOK] vmlinuz is already canonically linked to ${KERNEL}"
+else
+    ln -f -- "${KERNEL}" vmlinuz || cp -f -- "${KERNEL}" vmlinuz
+fi
+
+if [ -e initrd.img ] && [ "${INITRD}" -ef initrd.img ]; then
+    echo "[HOOK] initrd.img is already canonically linked to ${INITRD}"
+else
+    ln -f -- "${INITRD}" initrd.img || cp -f -- "${INITRD}" initrd.img
+fi
 
 test -s vmlinuz && test -s initrd.img
 
