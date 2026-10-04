@@ -6,3 +6,4 @@ HH   HH  uuuu u mmm  mm  mm  aaa aa nn   nn iii xx  xx
 
 Welcome to Humanix GNU/Linux 1.0 Release (\l)
 Kernel \r on an \m
+(If the system is already installed, then run ‘before-start.sh’ (in ‘~/’))
