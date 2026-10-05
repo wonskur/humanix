@@ -166,7 +166,7 @@ if [[ "${ans,,}" != "n" ]]; then
     echo "  2) openbox"
     echo "  3) i3"
     echo "  4) xfce"
-    echo "  5) kde"
+    echo "  5) kde(Recommended for beginners)"
     echo "  6) gnome"
     echo "  7) mate"
     echo "  8) cinnamon"
