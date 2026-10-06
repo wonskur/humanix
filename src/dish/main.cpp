@@ -15,6 +15,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -31,6 +32,7 @@ struct termios orig_termios;
 bool termios_saved = false;
 int last_exit_status = 0;
 pid_t last_background_pid = 0;
+size_t last_rendered_rows = 0;
 
 map<string, string> aliases;
 
@@ -59,6 +61,16 @@ size_t get_utf8_char_len(unsigned char c) {
     return 1;
 }
 
+size_t utf8_char_count(const string& s) {
+    size_t count = 0;
+    for (size_t i = 0; i < s.size(); ) {
+        size_t len = get_utf8_char_len(static_cast<unsigned char>(s[i]));
+        i += len;
+        count++;
+    }
+    return count;
+}
+
 string get_current_dir() {
     char cwd[PATH_MAX];
     if (getcwd(cwd, sizeof(cwd)) != nullptr) {
@@ -75,18 +87,105 @@ string get_hostname_str() {
     return "humanix";
 }
 
+string get_prompt_text() {
+    const char* user = getenv("USER");
+    return string(user ? user : "humanix") + "@" + get_hostname_str() + ":" + get_current_dir() + "> ";
+}
+
 void print_prompt() {
     const char* user = getenv("USER");
     cout << "\033[1;32m" << (user ? user : "humanix") << "@" << get_hostname_str() << "\033[0m:"
          << "\033[1;34m" << get_current_dir() << "\033[0m> ";
-    cout << "\0337";
     cout.flush();
+    last_rendered_rows = 0;
 }
 
-void redraw_line(const string& input, size_t cursor_pos) {
-    cout << "\0338\033[J" << input << "\0338";
-    if (cursor_pos > 0 && cursor_pos <= input.size()) {
-        cout << input.substr(0, cursor_pos);
+int get_term_columns() {
+    struct winsize ws;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0) {
+        return ws.ws_col;
+    }
+    return 80;
+}
+
+bool is_builtin_command(const string& cmd);
+
+bool is_executable_file(const string& path) {
+    struct stat sb;
+    return (stat(path.c_str(), &sb) == 0 && S_ISREG(sb.st_mode) && (sb.st_mode & 0111));
+}
+
+bool is_command_valid(const string& cmd) {
+    if (cmd.empty()) return false;
+    if (is_builtin_command(cmd) || aliases.count(cmd)) return true;
+    if (cmd.find('/') != string::npos) {
+        return is_executable_file(cmd);
+    }
+    const char* path_env = getenv("PATH");
+    if (!path_env) return false;
+
+    stringstream ss(path_env);
+    string dir;
+    while (getline(ss, dir, ':')) {
+        string full = dir.empty() ? cmd : dir + "/" + cmd;
+        if (is_executable_file(full)) return true;
+    }
+    return false;
+}
+
+string find_suggestion(const string& input) {
+    if (input.empty()) return "";
+    for (int i = static_cast<int>(history.size()) - 1; i >= 0; --i) {
+        const string& h = history[i];
+        if (h.size() > input.size() && h.compare(0, input.size(), input) == 0) {
+            size_t first_space = h.find(' ');
+            string first_word = (first_space == string::npos) ? h : h.substr(0, first_space);
+            if (is_command_valid(first_word)) {
+                return h.substr(input.size());
+            }
+        }
+    }
+    return "";
+}
+
+void redraw_line(const string& input, size_t cursor_byte_pos) {
+    int cols = get_term_columns();
+    string prompt = get_prompt_text();
+    size_t prompt_len = utf8_char_count(prompt);
+
+    if (last_rendered_rows > 0) {
+        cout << "\033[" << last_rendered_rows << "A";
+    }
+    cout << "\r\033[K";
+
+    const char* user = getenv("USER");
+    cout << "\033[1;32m" << (user ? user : "humanix") << "@" << get_hostname_str() << "\033[0m:"
+         << "\033[1;34m" << get_current_dir() << "\033[0m> ";
+
+    string suggestion = find_suggestion(input);
+
+    cout << "\033[0m" << input;
+    if (!suggestion.empty()) {
+        cout << "\033[90m" << suggestion << "\033[0m";
+    }
+    cout << "\033[J";
+
+    size_t input_chars = utf8_char_count(input);
+    size_t total_chars = prompt_len + input_chars + utf8_char_count(suggestion);
+    last_rendered_rows = total_chars / cols;
+
+    size_t cursor_char_pos = utf8_char_count(input.substr(0, cursor_byte_pos));
+    size_t target_col = prompt_len + cursor_char_pos;
+    size_t target_row = target_col / cols;
+    size_t target_x = (target_col % cols) + 1;
+
+    size_t diff_up = last_rendered_rows - target_row;
+    if (diff_up > 0) {
+        cout << "\033[" << diff_up << "A";
+    }
+    cout << "\r";
+    if (target_x > 1) {
+        cout << "\033[" << (target_x - 1) << "C";
     }
     cout.flush();
 }
@@ -104,16 +203,12 @@ void install_shell_signal_handlers() {
 
 string expand_tilde(const string& path) {
     if (path.empty() || path[0] != '~') return path;
-
     const char* home = getenv("HOME");
     string home_str = home ? home : ".";
-
     if (path.size() == 1) return home_str;
-
     if (path[1] == '/' || path[1] == '\\') {
         return home_str + path.substr(1);
     }
-
     return path;
 }
 
@@ -280,7 +375,6 @@ bool is_builtin_command(const string& cmd) {
 }
 
 int run_builtin_command(const vector<string>& argv);
-
 void load_rc_file(const string& path, bool top_level);
 
 int run_builtin_command(const vector<string>& argv) {
@@ -468,9 +562,6 @@ void execute_commands(const vector<Command>& commands, bool background) {
 
     if (commands.size() == 1 && !commands[0].argv.empty() && is_builtin_command(commands[0].argv[0])) {
         if (commands[0].argv[0] == "exit") {
-            ofstream outfile(string(getenv("HOME") ? getenv("HOME") : ".") + "/.dish_history");
-            for (const string& e : history) outfile << e << "\n";
-            outfile.close();
             restore_terminal();
             exit(0);
         }
@@ -640,7 +731,6 @@ int main() {
     shell_pgid = getpgrp();
 
     string home = getenv("HOME") ? getenv("HOME") : "/";
-
     load_rc_file(home + "/.dishrc", true);
 
     const string history_path = home + "/.dish_history";
@@ -672,15 +762,13 @@ int main() {
             if (c == 4) {
                 if (input.empty()) { input = "exit"; break; }
             } else if (c == 3) {
-
-                cout << "\0338\033[J^C\n";
+                cout << "^C\n";
                 input.clear();
                 cursor = 0;
                 print_prompt();
             } else if (c == '\n' || c == '\r') {
-
                 redraw_line(input, input.size());
-                cout << "\033[K\n";
+                cout << "\n";
                 break;
             } else if (c == 127 || c == 8) {
                 if (cursor > 0) {
@@ -695,7 +783,12 @@ int main() {
                     redraw_line(input, cursor);
                 }
             } else if (c == '\t') {
-                continue;
+                string sug = find_suggestion(input);
+                if (!sug.empty()) {
+                    input += sug;
+                    cursor = input.size();
+                    redraw_line(input, cursor);
+                }
             } else if (c == '\x1b') {
                 string seq;
                 seq += c;
@@ -719,7 +812,6 @@ int main() {
                         }
                         input = history[history_idx];
                         cursor = input.size();
-
                         redraw_line(input, cursor);
                     }
                 } else if (seq == "\x1b[B") {
@@ -732,7 +824,6 @@ int main() {
                             input = saved_input;
                         }
                         cursor = input.size();
-
                         redraw_line(input, cursor);
                     }
                 } else if (seq == "\x1b[D") {
@@ -747,6 +838,13 @@ int main() {
                         size_t step = get_utf8_char_len(static_cast<unsigned char>(input[cursor]));
                         cursor += step;
                         redraw_line(input, cursor);
+                    } else {
+                        string sug = find_suggestion(input);
+                        if (!sug.empty()) {
+                            input += sug;
+                            cursor = input.size();
+                            redraw_line(input, cursor);
+                        }
                     }
                 }
             } else if ((unsigned char)c >= 32) {
@@ -773,6 +871,11 @@ int main() {
         if (history.empty() || history.back() != input) {
             if (history.size() >= 1000) history.erase(history.begin());
             history.push_back(input);
+
+            ofstream append_hist(history_path, ios::app);
+            if (append_hist.is_open()) {
+                append_hist << input << "\n";
+            }
         }
 
         history_idx = -1;
