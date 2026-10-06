@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e
+
+if [ -f /etc/default/grub ]; then
+    # Отключаем консольный терминал
+    sed -i 's|^GRUB_TERMINAL_OUTPUT=.*|#GRUB_TERMINAL_OUTPUT="console"|' /etc/default/grub
+
+    # Задаем разрешение
+    if grep -q '^GRUB_GFXMODE=' /etc/default/grub; then
+        sed -i 's|^GRUB_GFXMODE=.*|GRUB_GFXMODE="1920x1080,auto"|' /etc/default/grub
+    else
+        echo 'GRUB_GFXMODE="1920x1080,auto"' >> /etc/default/grub
+    fi
+
+    # Прописываем путь к теме
+    if grep -q '^GRUB_THEME=' /etc/default/grub; then
+        sed -i 's|^GRUB_THEME=.*|GRUB_THEME="/boot/grub/themes/minions/theme.txt"|' /etc/default/grub
+    else
+        echo 'GRUB_THEME="/boot/grub/themes/minions/theme.txt"' >> /etc/default/grub
+    fi
+fi
