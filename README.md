@@ -49,3 +49,7 @@ Please read this before you install.
 
 Humanix is a personal project.
 You can read and change its configuration and source code in this repository.
+
+## Screenshots
+
+![minions grub](./docs/grub.png)
