@@ -1,5 +1,5 @@
 NAME="Humanix"
-PRETTY_NAME="Humanix GNU/Linux 1.0"
+PRETTY_NAME="Humanix GNU/Linux"
 ID=humanix
 ID_LIKE=debian
 VERSION_ID="1.0"

@@ -1,217 +1,126 @@
 #!/bin/bash
-
+set -e
+if [[ $EUID -ne 0 ]]; then
+   echo "Run this script with sudo: sudo ./before-start.sh"
+   exit 1
+fi
+echo -e "\033[1;36m:: Humanix OS - Post-Install Setup\033[0m\n"
 if ping -c 1 -W 3 1.1.1.1 &>/dev/null; then
-    echo "INTERNET IS WORKING"
+    echo "Internet connection: OK"
 else
-    echo "INTERNET IS NOT WORKING"
-    read -r -p "OPEN \"nmtui\" to connect? [Y/n]: " answer
+    echo "Internet connection: OFFLINE"
+    read -r -p "Open 'nmtui' to connect? [Y/n]: " answer
     case "${answer,,}" in
-        y|yes|"") nmtui ;;
-        n|no) echo "OK, exiting"; exit 1 ;;
-        *) echo "I DONT KNOW THAT ANSWER!"; exit 1 ;;
+        n|no) echo "Network is required. Exiting."; exit 1 ;;
+        *) nmtui ;;
     esac
 fi
-
 if ! ping -c 1 -W 3 1.1.1.1 &>/dev/null; then
-    echo "STILL NO INTERNET"
+    echo "Still no internet. Exiting."
     exit 1
 fi
-
-read -r -p "Run humanix-installer now? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    humanix-installer || exit 1
-fi
-
-echo "POST-INSTALL PACKAGE SETUP"
-echo "These packages will be installed into the TARGET system."
-echo "Mount the target root first (e.g. /mnt/humanix_target) if it is not mounted."
-
-read -r -p "Target root path [/mnt/humanix_target]: " root
-if [[ -z "$root" ]]; then root="/mnt/humanix_target"; fi
-
-if [[ ! -d "$root" ]]; then
-    echo "Target root $root does not exist."
-    exit 1
-fi
-
-bind_chroot() {
-    mount --bind /dev  "$root/dev"     || true
-    mount --bind /dev/pts "$root/dev/pts" || true
-    mount --bind /proc "$root/proc"    || true
-    mount --bind /sys  "$root/sys"     || true
-    mount --bind /run  "$root/run"     || true
+echo "Updating package lists..."
+apt update
+ask_step(){
+    local prompt="$1"
+    local default="${2:-y}"
+    read -r -p "$prompt [Y/n]: " ans
+    ans="${ans,,}"
+    if [[ -z "$ans" ]]; then ans="$default"; fi
+    [[ "$ans" == "y" || "$ans" == "yes" ]]
 }
-
-in_chroot() {
-    chroot "$root" "$@"
-}
-
-bind_chroot
-
-read -r -p "Install firmware (wifi/gpu)? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    in_chroot apt update
-    in_chroot apt install -y firmware-linux firmware-linux-nonfree
+if ask_step "Install hardware firmware (WiFi/GPU/CPU microcode)?"; then
+    apt install -y firmware-linux firmware-linux-nonfree intel-microcode amd64-microcode
 fi
-
-read -r -p "Install X11 (xorg, xinit)? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    in_chroot apt install -y xorg xinit
+if ask_step "Install base X11 server and fonts?"; then
+    apt install -y xorg xinit fonts-dejavu fonts-liberation
 fi
-
-read -r -p "Install fonts? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    in_chroot apt install -y fonts-dejavu fonts-liberation
-fi
-
-read -r -p "Install audio server? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    echo "  1) pipewire"
-    echo "  2) pulseaudio"
+if ask_step "Install audio server (PipeWire recommended)?"; then
+    echo "  1) pipewire (modern)"
+    echo "  2) pulseaudio (legacy)"
     echo "  3) none"
     read -r -p "> " audio
     case "$audio" in
-        1) in_chroot apt install -y pipewire pipewire-pulse wireplumber ;;
-        2) in_chroot apt install -y pulseaudio ;;
+        1|"") apt install -y pipewire pipewire-pulse wireplumber ;;
+        2) apt install -y pulseaudio ;;
     esac
 fi
-
-read -r -p "Install NetworkManager applet? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    in_chroot apt install -y network-manager network-manager-gnome
+if ask_step "Choose Desktop Environment or Window Manager?"; then
+    echo "  1) KDE Plasma (recommended)"
+    echo "  2) XFCE (lightweight)"
+    echo "  3) GNOME"
+    echo "  4) i3 (tiling WM)"
+    echo "  5) Openbox"
+    echo "  6) MATE"
+    echo "  7) Cinnamon"
+    echo "  8) LXQt"
+    echo "  9) None"
+    read -r -p "> " de
+    case "$de" in
+        1) apt install -y kde-plasma-desktop ;;
+        2) apt install -y xfce4 xfce4-goodies ;;
+        3) apt install -y gnome-core ;;
+        4) apt install -y i3 ;;
+        5) apt install -y openbox obconf ;;
+        6) apt install -y mate-desktop-environment-core ;;
+        7) apt install -y cinnamon-core ;;
+        8) apt install -y lxqt-core ;;
+    esac
 fi
-
-read -r -p "Install browser? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
+if ask_step "Install Display Manager (login screen)?"; then
+    echo "  1) sddm (best for KDE/LXQt)"
+    echo "  2) lightdm (best for XFCE/WMs)"
+    echo "  3) gdm3 (best for GNOME)"
+    echo "  4) none (boot to console / startx)"
+    read -r -p "> " dm
+    case "$dm" in
+        1) apt install -y sddm ;;
+        2) apt install -y lightdm ;;
+        3) apt install -y gdm3 ;;
+    esac
+fi
+if ask_step "Install GUI terminal emulator?"; then
+    echo "  1) alacritty"
+    echo "  2) kitty"
+    echo "  3) xfce4-terminal"
+    echo "  4) none"
+    read -r -p "> " term
+    case "$term" in
+        1) apt install -y alacritty ;;
+        2) apt install -y kitty ;;
+        3) apt install -y xfce4-terminal ;;
+    esac
+fi
+if ask_step "Install web browser?"; then
     echo "  1) firefox-esr"
     echo "  2) chromium"
     echo "  3) none"
-    read -r -p "> " b
-    case "$b" in
-        1) in_chroot apt install -y firefox-esr ;;
-        2) in_chroot apt install -y chromium ;;
+    read -r -p "> " br
+    case "$br" in
+        1|"") apt install -y firefox-esr ;;
+        2) apt install -y chromium ;;
     esac
 fi
-
-read -r -p "Install terminal emulator? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    echo "  1) xterm"
-    echo "  2) alacritty"
-    echo "  3) kitty"
+if ask_step "Install GUI file manager?"; then
+    echo "  1) thunar"
+    echo "  2) pcmanfm"
+    echo "  3) nemo"
     echo "  4) none"
-    read -r -p "> " t
-    case "$t" in
-        1) in_chroot apt install -y xterm ;;
-        2) in_chroot apt install -y alacritty ;;
-        3) in_chroot apt install -y kitty ;;
+    read -r -p "> " fm
+    case "$fm" in
+        1) apt install -y thunar ;;
+        2) apt install -y pcmanfm ;;
+        3) apt install -y nemo ;;
     esac
 fi
-
-read -r -p "Install file manager? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    echo "  1) pcmanfm"
-    echo "  2) thunar"
-    echo "  3) nautilus"
-    echo "  4) none"
-    read -r -p "> " f
-    case "$f" in
-        1) in_chroot apt install -y pcmanfm ;;
-        2) in_chroot apt install -y thunar ;;
-        3) in_chroot apt install -y nautilus ;;
-    esac
+if ask_step "Install essential CLI utilities (git, curl, wget, htop, archives)?"; then
+    apt install -y git curl wget htop unzip zip p7zip-full tar gzip
 fi
-
-read -r -p "Install text editor? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    echo "  1) vim"
-    echo "  2) nano"
-    echo "  3) emacs"
-    echo "  4) none"
-    read -r -p "> " e
-    case "$e" in
-        1) in_chroot apt install -y vim ;;
-        2) in_chroot apt install -y nano ;;
-        3) in_chroot apt install -y emacs ;;
-    esac
+if ask_step "Clean package cache?"; then
+    apt autoremove -y
+    apt clean
 fi
-
-read -r -p "Install image viewer (feh)? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    in_chroot apt install -y feh
-fi
-
-read -r -p "Install archive tools? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    in_chroot apt install -y unzip zip p7zip-full tar gzip
-fi
-
-read -r -p "Install git? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    in_chroot apt install -y git
-fi
-
-read -r -p "Install curl and wget? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    in_chroot apt install -y curl wget
-fi
-
-read -r -p "Install htop? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    in_chroot apt install -y htop
-fi
-
-read -r -p "Choose DE/WM? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    echo "  1) none"
-    echo "  2) openbox"
-    echo "  3) i3"
-    echo "  4) xfce"
-    echo "  5) kde(Recommended for beginners)"
-    echo "  6) gnome"
-    echo "  7) mate"
-    echo "  8) cinnamon"
-    echo "  9) lxqt"
-    echo " 10) lxde"
-    read -r -p "> " d
-    case "$d" in
-        2) in_chroot apt install -y openbox ;;
-        3) in_chroot apt install -y i3 ;;
-        4) in_chroot apt install -y xfce4 xfce4-goodies ;;
-        5) in_chroot apt install -y kde-plasma-desktop ;;
-        6) in_chroot apt install -y gnome ;;
-        7) in_chroot apt install -y mate-desktop-environment ;;
-        8) in_chroot apt install -y cinnamon ;;
-        9) in_chroot apt install -y lxqt ;;
-        10) in_chroot apt install -y lxde ;;
-    esac
-fi
-
-read -r -p "Choose DM? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    echo "  1) none (startx)"
-    echo "  2) lightdm"
-    echo "  3) sddm"
-    echo "  4) gdm3"
-    echo "  5) lxdm"
-    read -r -p "> " m
-    case "$m" in
-        2) in_chroot apt install -y lightdm ;;
-        3) in_chroot apt install -y sddm ;;
-        4) in_chroot apt install -y gdm3 ;;
-        5) in_chroot apt install -y lxdm ;;
-    esac
-fi
-
-read -r -p "Clean apt cache inside target? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    in_chroot apt clean
-    in_chroot apt autoremove -y
-fi
-
-read -r -p "Reboot now? [Y/n]: " ans
-if [[ "${ans,,}" != "n" ]]; then
-    umount -R "$root" 2>/dev/null || true
+echo -e "\n\033[1;32mSetup finished successfully!\033[0m"
+if ask_step "Reboot system now?"; then
     reboot
 fi
-
-echo "DONE"
