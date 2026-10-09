@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <unistd.h>
 #include <sys/wait.h>
-
+#include <sys/stat.h>
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
