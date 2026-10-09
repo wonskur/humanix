@@ -82,7 +82,7 @@ static bool check_root_disk_space() {
     unsigned long long free_bytes = stat.f_bavail * stat.f_frsize;
     unsigned long long free_mb = free_bytes / (1024 * 1024);
 
-    if (free_mb < 500) { // Меньше 500 МБ
+    if (free_mb < 500) {
         std::cout << "  FAIL: Root partition is almost full (" << free_mb << " MB left)\n";
         std::cout << "  FIX:  sudo apt clean && sudo rm -rf /var/log/*.gz\n";
         return false;
@@ -111,7 +111,6 @@ static bool check_ram() {
 static bool check_failed_services() {
     std::cout << "[7/8 Systemd Degraded Services]\n";
     if (run_quiet("systemctl --failed --quiet | grep -q '0 loaded units listed' || ! systemctl is-system-running --quiet")) {
-        // Проверяем прямое наличие упавших сервисов
         if (!run_quiet("test $(systemctl --failed --no-legend | wc -l) -eq 0")) {
             std::cout << "  FAIL: One or more systemd services failed\n";
             std::cout << "  FIX:  systemctl --failed\n";

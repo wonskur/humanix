@@ -15,6 +15,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
 #include <algorithm>
 #include <cerrno>
 #include <cctype>
@@ -393,6 +394,7 @@ bool is_builtin_command(const string& cmd) {
 
 int run_builtin_command(const vector<string>& argv);
 void load_rc_file(const string& path, bool top_level);
+void execute_line(const string& input);
 
 int run_builtin_command(const vector<string>& argv) {
     if (argv.empty()) return 0;
@@ -464,11 +466,12 @@ int run_builtin_command(const vector<string>& argv) {
         return 0;
     }
     if (cmd == "exit") {
-        cout << "Bye from Humanix dish\n";
-        return 0;
+        int code = argv.size() > 1 ? atoi(argv[1].c_str()) : last_exit_status;
+        restore_terminal();
+        exit(code);
     }
     if (cmd == "dishhelp") {
-        cout << "dish (Humanix Shell) - fast native C++ shell\n";
+        cout << "dish (Humanix Shell) - fast native standalone shell\n";
         cout << "Built-ins: cd, export, unset, alias, unalias, source, exit, history, jobs, dishhelp\n";
         return 0;
     }
@@ -485,6 +488,20 @@ int run_builtin_command(const vector<string>& argv) {
     return 0;
 }
 
+void run_script_file(const string& path) {
+    ifstream f(path);
+    if (!f) {
+        perror(("dish: " + path).c_str());
+        exit(1);
+    }
+    string line;
+    while (getline(f, line)) {
+        size_t s = line.find_first_not_of(" \t\r\n");
+        if (s == string::npos || line[s] == '#') continue;
+        execute_line(line);
+    }
+}
+
 void load_rc_file(const string& path, bool top_level) {
     ifstream rc(path);
     if (!rc) {
@@ -495,45 +512,9 @@ void load_rc_file(const string& path, bool top_level) {
 
     string line;
     while (getline(rc, line)) {
-        size_t start = line.find_first_not_of(" \t");
-        if (start == string::npos) continue;
-        if (line[start] == '#') continue;
-
-        vector<string> tokens = split_shell_tokens(line);
-        if (tokens.empty()) continue;
-
-        if (tokens[0] == "export") {
-            for (size_t i = 1; i < tokens.size(); ++i) {
-                string item = expand_environment_variables(tokens[i]);
-                size_t eq = item.find('=');
-                if (eq != string::npos) {
-                    setenv(item.substr(0, eq).c_str(), item.substr(eq + 1).c_str(), 1);
-                }
-            }
-            continue;
-        }
-        if (tokens[0] == "alias") {
-            for (size_t i = 1; i < tokens.size(); ++i) {
-                const string& item = tokens[i];
-                size_t eq = item.find('=');
-                if (eq == string::npos) continue;
-                string name = item.substr(0, eq);
-                string value = item.substr(eq + 1);
-                if (value.size() >= 2 &&
-                    ((value.front() == '"' && value.back() == '"') ||
-                     (value.front() == '\'' && value.back() == '\''))) {
-                    value = value.substr(1, value.size() - 2);
-                }
-                if (!name.empty()) aliases[name] = value;
-            }
-            continue;
-        }
-        if (tokens[0] == "source" || tokens[0] == ".") {
-            if (tokens.size() >= 2) {
-                load_rc_file(expand_environment_variables(tokens[1]), false);
-            }
-            continue;
-        }
+        size_t start = line.find_first_not_of(" \t\r\n");
+        if (start == string::npos || line[start] == '#') continue;
+        execute_line(line);
     }
 }
 
@@ -567,8 +548,10 @@ vector<Command> parse_commands(const vector<string>& tokens) {
 }
 
 pid_t shell_pgid = 0;
+bool is_interactive_session = false;
 
 void give_terminal_to(pid_t pgid) {
+    if (!is_interactive_session) return;
     signal(SIGTTOU, SIG_IGN);
     tcsetpgrp(STDIN_FILENO, pgid);
     signal(SIGTTOU, SIG_IGN);
@@ -579,8 +562,9 @@ void execute_commands(const vector<Command>& commands, bool background) {
 
     if (commands.size() == 1 && !commands[0].argv.empty() && is_builtin_command(commands[0].argv[0])) {
         if (commands[0].argv[0] == "exit") {
+            int code = commands[0].argv.size() > 1 ? atoi(commands[0].argv[1].c_str()) : last_exit_status;
             restore_terminal();
-            exit(0);
+            exit(code);
         }
         last_exit_status = run_builtin_command(commands[0].argv);
         return;
@@ -605,13 +589,15 @@ void execute_commands(const vector<Command>& commands, bool background) {
             signal(SIGTTIN, SIG_DFL);
             signal(SIGTTOU, SIG_DFL);
 
-            pid_t child_pgid = getpid();
-            setpgid(0, child_pgid);
+            if (is_interactive_session) {
+                pid_t child_pgid = getpid();
+                setpgid(0, child_pgid);
 
-            if (!background) {
-                signal(SIGTTOU, SIG_IGN);
-                tcsetpgrp(STDIN_FILENO, child_pgid);
-                signal(SIGTTOU, SIG_DFL);
+                if (!background) {
+                    signal(SIGTTOU, SIG_IGN);
+                    tcsetpgrp(STDIN_FILENO, child_pgid);
+                    signal(SIGTTOU, SIG_DFL);
+                }
             }
 
             if (prev_read != -1) {
@@ -643,20 +629,21 @@ void execute_commands(const vector<Command>& commands, bool background) {
             if (!argv_ptrs.empty() && argv_ptrs[0] != nullptr) {
                 if (strchr(argv_ptrs[0], '/') != nullptr) {
                     execv(argv_ptrs[0], argv_ptrs.data());
-                    if (errno == ENOEXEC) {
-                        vector<char*> bash_argv;
-                        bash_argv.reserve(argv_ptrs.size() + 1);
-                        bash_argv.push_back(const_cast<char*>("bash"));
-                        for (const string& arg : commands[i].argv) {
-                            bash_argv.push_back(const_cast<char*>(arg.c_str()));
-                        }
-                        bash_argv.push_back(nullptr);
-                        execv("/bin/bash", bash_argv.data());
-                    }
                 } else {
                     execvp(argv_ptrs[0], argv_ptrs.data());
                 }
-                fprintf(stderr, "%s: %s\n", argv_ptrs[0], strerror(errno));
+                if (errno == ENOEXEC) {
+                    vector<char*> sh_argv;
+                    sh_argv.reserve(argv_ptrs.size() + 2);
+                    sh_argv.push_back(const_cast<char*>("sh"));
+                    for (const string& arg : commands[i].argv) {
+                        sh_argv.push_back(const_cast<char*>(arg.c_str()));
+                    }
+                    sh_argv.push_back(nullptr);
+                    execv("/bin/sh", sh_argv.data());
+                }
+
+                fprintf(stderr, "dish: %s: %s\n", argv_ptrs[0], strerror(errno));
             }
             _exit(127);
         } else if (pid < 0) {
@@ -665,11 +652,12 @@ void execute_commands(const vector<Command>& commands, bool background) {
             if (prev_read != -1) close(prev_read);
             return;
         } else {
-            pid_t child_pgid = pid;
-            setpgid(pid, child_pgid);
-
-            if (i == 0 && !background) {
-                give_terminal_to(child_pgid);
+            if (is_interactive_session) {
+                pid_t child_pgid = pid;
+                setpgid(pid, child_pgid);
+                if (i == 0 && !background) {
+                    give_terminal_to(child_pgid);
+                }
             }
 
             if (prev_read != -1) close(prev_read);
@@ -701,10 +689,12 @@ void execute_commands(const vector<Command>& commands, bool background) {
         }
     }
 
-    give_terminal_to(shell_pgid);
+    if (is_interactive_session) {
+        give_terminal_to(shell_pgid);
+    }
 }
 
-void execute_line(const string& input) {
+void execute_single_pipeline(const string& input) {
     vector<string> tokens = split_shell_tokens(input);
     if (tokens.empty()) return;
 
@@ -740,18 +730,44 @@ void execute_line(const string& input) {
 
     execute_commands(commands, background);
 }
+void execute_line(const string& line) {
+    stringstream ss(line);
+    string segment;
+    while (getline(ss, segment, ';')) {
+        size_t pos = 0;
+        while (pos < segment.size()) {
+            size_t next_and = segment.find("&&", pos);
+            string sub = (next_and == string::npos) ? segment.substr(pos) : segment.substr(pos, next_and - pos);
+            execute_single_pipeline(sub);
+            if (next_and == string::npos) break;
+            if (last_exit_status != 0) break;
+            pos = next_and + 2;
+        }
+    }
+}
 
-int main() {
+int main(int argc, char* argv[]) {
     setlocale(LC_ALL, "");
-    install_shell_signal_handlers();
-
-    shell_pgid = getpgrp();
+    if (argc >= 3 && string(argv[1]) == "-c") {
+        is_interactive_session = false;
+        execute_line(argv[2]);
+        return last_exit_status;
+    }
+    if (argc >= 2 && argv[1][0] != '-') {
+        is_interactive_session = false;
+        run_script_file(argv[1]);
+        return last_exit_status;
+    }
+    is_interactive_session = isatty(STDIN_FILENO);
+    if (is_interactive_session) {
+        install_shell_signal_handlers();
+        shell_pgid = getpgrp();
+    }
 
     string home = getenv("HOME") ? getenv("HOME") : "/";
     load_rc_file(home + "/.dishrc", true);
 
     const string history_path = home + "/.dish_history";
-
     ifstream infile(history_path);
     string line;
     while (getline(infile, line)) {
@@ -759,139 +775,145 @@ int main() {
     }
     infile.close();
 
-    if (tcgetattr(0, &orig_termios) == -1) return 1;
-    termios_saved = true;
-
-    give_terminal_to(shell_pgid);
+    if (is_interactive_session) {
+        if (tcgetattr(0, &orig_termios) == -1) return 1;
+        termios_saved = true;
+        give_terminal_to(shell_pgid);
+    }
 
     while (true) {
         string input;
         size_t cursor = 0;
 
-        print_prompt();
+        if (is_interactive_session) {
+            print_prompt();
 
-        struct termios raw = orig_termios;
-        raw.c_lflag &= ~(ICANON | ECHO);
-        tcsetattr(0, TCSAFLUSH, &raw);
+            struct termios raw = orig_termios;
+            raw.c_lflag &= ~(ICANON | ECHO);
+            tcsetattr(0, TCSAFLUSH, &raw);
 
-        char c;
-        while (read(0, &c, 1) == 1) {
-            if (c == 4) {
-                if (input.empty()) { input = "exit"; break; }
-            } else if (c == 3) {
-                cout << "^C\n";
-                input.clear();
-                cursor = 0;
-                print_prompt();
-            } else if (c == '\n' || c == '\r') {
-                redraw_line(input, input.size());
-                cout << "\n";
-                break;
-            } else if (c == 127 || c == 8) {
-                if (cursor > 0) {
-                    size_t bytes_to_erase = 1;
-                    while (cursor > bytes_to_erase &&
-                           (static_cast<unsigned char>(input[cursor - bytes_to_erase]) & 0xC0) == 0x80) {
-                        bytes_to_erase++;
-                    }
-                    input.erase(cursor - bytes_to_erase, bytes_to_erase);
-                    cursor -= bytes_to_erase;
-
-                    redraw_line(input, cursor);
-                }
-            } else if (c == '\t') {
-                string sug = find_suggestion(input);
-                if (!sug.empty()) {
-                    input += sug;
-                    cursor = input.size();
-                    redraw_line(input, cursor);
-                }
-            } else if (c == '\x1b') {
-                string seq;
-                seq += c;
-                if (read(0, &c, 1) == 1) {
-                    seq += c;
-                    if (c == '[') {
-                        while (read(0, &c, 1) == 1) {
-                            seq += c;
-                            if ((unsigned char)c >= 0x40 && (unsigned char)c <= 0x7E && c != '[') break;
-                        }
-                    }
-                }
-
-                if (seq == "\x1b[A") {
-                    if (!history.empty()) {
-                        if (history_idx == -1) {
-                            saved_input = input;
-                            history_idx = static_cast<int>(history.size()) - 1;
-                        } else if (history_idx > 0) {
-                            history_idx--;
-                        }
-                        input = history[history_idx];
-                        cursor = input.size();
-                        redraw_line(input, cursor);
-                    }
-                } else if (seq == "\x1b[B") {
-                    if (history_idx != -1) {
-                        if (history_idx < static_cast<int>(history.size()) - 1) {
-                            history_idx++;
-                            input = history[history_idx];
-                        } else {
-                            history_idx = -1;
-                            input = saved_input;
-                        }
-                        cursor = input.size();
-                        redraw_line(input, cursor);
-                    }
-                } else if (seq == "\x1b[D") {
+            char c;
+            while (read(0, &c, 1) == 1) {
+                if (c == 4) {
+                    if (input.empty()) { input = "exit"; break; }
+                } else if (c == 3) {
+                    cout << "^C\n";
+                    input.clear();
+                    cursor = 0;
+                    print_prompt();
+                } else if (c == '\n' || c == '\r') {
+                    redraw_line(input, input.size());
+                    cout << "\n";
+                    break;
+                } else if (c == 127 || c == 8) {
                     if (cursor > 0) {
-                        size_t step = 1;
-                        while (cursor > step && (static_cast<unsigned char>(input[cursor - step]) & 0xC0) == 0x80) step++;
-                        cursor -= step;
+                        size_t bytes_to_erase = 1;
+                        while (cursor > bytes_to_erase &&
+                               (static_cast<unsigned char>(input[cursor - bytes_to_erase]) & 0xC0) == 0x80) {
+                            bytes_to_erase++;
+                        }
+                        input.erase(cursor - bytes_to_erase, bytes_to_erase);
+                        cursor -= bytes_to_erase;
                         redraw_line(input, cursor);
                     }
-                } else if (seq == "\x1b[C") {
-                    if (cursor < input.size()) {
-                        size_t step = get_utf8_char_len(static_cast<unsigned char>(input[cursor]));
-                        cursor += step;
+                } else if (c == '\t') {
+                    string sug = find_suggestion(input);
+                    if (!sug.empty()) {
+                        input += sug;
+                        cursor = input.size();
                         redraw_line(input, cursor);
-                    } else {
-                        string sug = find_suggestion(input);
-                        if (!sug.empty()) {
-                            input += sug;
+                    }
+                } else if (c == '\x1b') {
+                    string seq;
+                    seq += c;
+                    if (read(0, &c, 1) == 1) {
+                        seq += c;
+                        if (c == '[') {
+                            while (read(0, &c, 1) == 1) {
+                                seq += c;
+                                if ((unsigned char)c >= 0x40 && (unsigned char)c <= 0x7E && c != '[') break;
+                            }
+                        }
+                    }
+
+                    if (seq == "\x1b[A") {
+                        if (!history.empty()) {
+                            if (history_idx == -1) {
+                                saved_input = input;
+                                history_idx = static_cast<int>(history.size()) - 1;
+                            } else if (history_idx > 0) {
+                                history_idx--;
+                            }
+                            input = history[history_idx];
                             cursor = input.size();
                             redraw_line(input, cursor);
                         }
+                    } else if (seq == "\x1b[B") {
+                        if (history_idx != -1) {
+                            if (history_idx < static_cast<int>(history.size()) - 1) {
+                                history_idx++;
+                                input = history[history_idx];
+                            } else {
+                                history_idx = -1;
+                                input = saved_input;
+                            }
+                            cursor = input.size();
+                            redraw_line(input, cursor);
+                        }
+                    } else if (seq == "\x1b[D") {
+                        if (cursor > 0) {
+                            size_t step = 1;
+                            while (cursor > step && (static_cast<unsigned char>(input[cursor - step]) & 0xC0) == 0x80) step++;
+                            cursor -= step;
+                            redraw_line(input, cursor);
+                        }
+                    } else if (seq == "\x1b[C") {
+                        if (cursor < input.size()) {
+                            size_t step = get_utf8_char_len(static_cast<unsigned char>(input[cursor]));
+                            cursor += step;
+                            redraw_line(input, cursor);
+                        } else {
+                            string sug = find_suggestion(input);
+                            if (!sug.empty()) {
+                                input += sug;
+                                cursor = input.size();
+                                redraw_line(input, cursor);
+                            }
+                        }
                     }
-                }
-            } else if ((unsigned char)c >= 32) {
-                string utf8_char(1, c);
-                size_t char_len = get_utf8_char_len(static_cast<unsigned char>(c));
-                for (size_t i = 1; i < char_len; ++i) {
-                    char next_c;
-                    if (read(0, &next_c, 1) == 1) utf8_char += next_c;
-                }
+                } else if ((unsigned char)c >= 32) {
+                    string utf8_char(1, c);
+                    size_t char_len = get_utf8_char_len(static_cast<unsigned char>(c));
+                    for (size_t i = 1; i < char_len; ++i) {
+                        char next_c;
+                        if (read(0, &next_c, 1) == 1) utf8_char += next_c;
+                    }
 
-                if (cursor == input.size()) input += utf8_char;
-                else input.insert(cursor, utf8_char);
-                cursor += utf8_char.size();
+                    if (cursor == input.size()) input += utf8_char;
+                    else input.insert(cursor, utf8_char);
+                    cursor += utf8_char.size();
 
-                redraw_line(input, cursor);
+                    redraw_line(input, cursor);
+                }
             }
-        }
 
-        tcsetattr(0, TCSAFLUSH, &orig_termios);
+            tcsetattr(0, TCSAFLUSH, &orig_termios);
+        } else {
+            if (!getline(cin, input)) break;
+        }
 
         if (input == "exit") break;
         if (input.empty()) continue;
 
-        if (history.empty() || history.back() != input) {
-            if (history.size() >= 1000) history.erase(history.begin());
-            history.push_back(input);
+        if (is_interactive_session) {
+            if (history.empty() || history.back() != input) {
+                if (history.size() >= 1000) history.erase(history.begin());
+                history.push_back(input);
 
-            ofstream append_hist(history_path, ios::app);
-            if (append_hist.is_open()) {
-                append_hist << input << "\n";
+                ofstream append_hist(history_path, ios::app);
+                if (append_hist.is_open()) {
+                    append_hist << input << "\n";
+                }
             }
         }
 
@@ -901,9 +923,11 @@ int main() {
         execute_line(input);
     }
 
-    ofstream outfile(history_path);
-    for (const string& entry : history) outfile << entry << "\n";
-    outfile.close();
+    if (is_interactive_session) {
+        ofstream outfile(history_path);
+        for (const string& entry : history) outfile << entry << "\n";
+        outfile.close();
+    }
 
-    return 0;
+    return last_exit_status;
 }
