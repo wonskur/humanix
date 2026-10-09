@@ -15,9 +15,12 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <sys/statvfs.h>
+#include <sys/sysinfo.h>
 
 static bool run_quiet(const std::string& cmd) {
     std::string full = cmd + " >/dev/null 2>&1";
@@ -25,44 +28,128 @@ static bool run_quiet(const std::string& cmd) {
 }
 
 static bool check_networkmanager() {
-    std::cout << "[NetworkManager]\n";
+    std::cout << "[1/8 NetworkManager]\n";
     if (run_quiet("systemctl is-active --quiet NetworkManager")) {
-        std::cout << "OK: service is active\n";
+        std::cout << "  OK: NetworkManager is active\n";
         return true;
     }
-    std::cout << "FAIL: service is not active\n";
-    std::cout << "CHECK: systemctl status NetworkManager\n";
-    std::cout << "FIX: systemctl enable --now NetworkManager\n";
+    std::cout << "  FAIL: NetworkManager is inactive\n";
+    std::cout << "  FIX:  sudo systemctl enable --now NetworkManager\n";
     return false;
 }
 
 static bool check_default_route() {
-    std::cout << "[Default route]\n";
+    std::cout << "[2/8 Default Route]\n";
     if (run_quiet("ip route show default | grep -q '^default '")) {
-        std::cout << "OK: route is configured\n";
+        std::cout << "  OK: Default gateway exists\n";
         return true;
     }
-    std::cout << "FAIL: no default route\n";
-    std::cout << "CHECK: ip route; nmcli device status\n";
+    std::cout << "  FAIL: No default route\n";
+    std::cout << "  FIX:  Check network cable or run 'nmtui'\n";
     return false;
 }
 
 static bool check_dns() {
-    std::cout << "[DNS]\n";
+    std::cout << "[3/8 DNS Resolution]\n";
     if (run_quiet("getent ahosts deb.debian.org")) {
-        std::cout << "OK: deb.debian.org resolves\n";
+        std::cout << "  OK: deb.debian.org resolves\n";
         return true;
     }
-    std::cout << "FAIL: DNS lookup did not resolve deb.debian.org\n";
-    std::cout << "CHECK: resolvectl status\n";
+    std::cout << "  FAIL: DNS cannot resolve domains\n";
+    std::cout << "  FIX:  Check /etc/resolv.conf or run 'resolvectl status'\n";
     return false;
 }
 
+static bool check_ping() {
+    std::cout << "[4/8 Internet Connectivity]\n";
+    if (run_quiet("ping -c 1 -W 2 1.1.1.1")) {
+        std::cout << "  OK: External ping to 1.1.1.1 succeeded\n";
+        return true;
+    }
+    std::cout << "  FAIL: No ICMP response from 1.1.1.1\n";
+    std::cout << "  FIX:  Check firewall or WAN connection\n";
+    return false;
+}
+
+static bool check_root_disk_space() {
+    std::cout << "[5/8 Root Disk Space (/)]\n";
+    struct statvfs stat;
+    if (statvfs("/", &stat) != 0) {
+        std::cout << "  FAIL: Could not stat root filesystem\n";
+        return false;
+    }
+
+    unsigned long long free_bytes = stat.f_bavail * stat.f_frsize;
+    unsigned long long free_mb = free_bytes / (1024 * 1024);
+
+    if (free_mb < 500) { // Меньше 500 МБ
+        std::cout << "  FAIL: Root partition is almost full (" << free_mb << " MB left)\n";
+        std::cout << "  FIX:  sudo apt clean && sudo rm -rf /var/log/*.gz\n";
+        return false;
+    }
+    std::cout << "  OK: " << free_mb << " MB available on /\n";
+    return true;
+}
+
+static bool check_ram() {
+    std::cout << "[6/8 RAM Status]\n";
+    struct sysinfo info;
+    if (sysinfo(&info) != 0) {
+        std::cout << "  FAIL: Could not query sysinfo\n";
+        return false;
+    }
+
+    unsigned long long free_mb = (info.freeram * info.mem_unit) / (1024 * 1024);
+    if (free_mb < 100) {
+        std::cout << "  WARN: Critically low RAM (" << free_mb << " MB free)\n";
+        return false;
+    }
+    std::cout << "  OK: " << free_mb << " MB free RAM\n";
+    return true;
+}
+
+static bool check_failed_services() {
+    std::cout << "[7/8 Systemd Degraded Services]\n";
+    if (run_quiet("systemctl --failed --quiet | grep -q '0 loaded units listed' || ! systemctl is-system-running --quiet")) {
+        // Проверяем прямое наличие упавших сервисов
+        if (!run_quiet("test $(systemctl --failed --no-legend | wc -l) -eq 0")) {
+            std::cout << "  FAIL: One or more systemd services failed\n";
+            std::cout << "  FIX:  systemctl --failed\n";
+            return false;
+        }
+    }
+    std::cout << "  OK: No failed systemd units\n";
+    return true;
+}
+
+static bool check_apt_locks() {
+    std::cout << "[8/8 Package Manager Lock]\n";
+    if (run_quiet("fuser /var/lib/dpkg/lock-frontend") || run_quiet("fuser /var/lib/apt/lists/lock")) {
+        std::cout << "  WARN: APT/dpkg database is locked by another process\n";
+        std::cout << "  CHECK: ps aux | grep -E 'apt|dpkg'\n";
+        return false;
+    }
+    std::cout << "  OK: dpkg database is unlocked\n";
+    return true;
+}
+
 int main() {
-    std::cout << "humanix-doctor: quick system check\n";
-    bool ok = check_networkmanager();
+    std::cout << "\033[1;36mHumanix Doctor: System Diagnostics\033[0m\n\n";
+
+    bool ok = true;
+    ok = check_networkmanager() && ok;
     ok = check_default_route() && ok;
     ok = check_dns() && ok;
-    std::cout << (ok ? "Result: all checks passed\n" : "Result: issues found\n");
-    return ok ? 0 : 1;
+    ok = check_ping() && ok;
+    ok = check_root_disk_space() && ok;
+    ok = check_ram() && ok;
+    ok = check_failed_services() && ok;
+    ok = check_apt_locks() && ok;
+    if (ok) {
+        std::cout << "\033[1;32m[PASS] All system checks passed successfully.\033[0m\n";
+        return 0;
+    } else {
+        std::cout << "\033[1;31m[WARN] Diagnostic found issues above.\033[0m\n";
+        return 1;
+    }
 }
