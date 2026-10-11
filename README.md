@@ -20,7 +20,7 @@ It has a small command shell, system tools, and an installer.
 - `dish` — the Humanix command shell.
 - `humanix-doctor` — checks common system problems.
 - `sys-sentinel` and `sentinel-ctl` — show system status.
-- `humanix-installer` — installs Humanix to a disk.
+- `humanix-installer` — installs Humanix to a disk(TII)
 
 ---
 
