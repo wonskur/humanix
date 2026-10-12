@@ -150,22 +150,43 @@ std::string get_part_name(const std::string& disk_path, int part_num) {
 }
 
 void perform_installation(const BlockDevice& target, const std::string& hostname, const std::string& username,
-                          const std::string& root_pwd, const std::string& user_pwd, bool sudo_no_pwd) {
+                          const std::string& root_pwd, const std::string& user_pwd, bool sudo_no_pwd,
+                          const std::string& timezone, const std::string& locale, const std::string& keymap,
+                          const std::string& fs_type, bool install_ssh, bool install_desktop,
+                          const std::string& swap_size, const std::string& bootloader) {
     uint64_t efi_mib = 512;
-    uint64_t root_mib = target.size_mib - efi_mib - 2;
+    uint64_t swap_mib = 0;
+    if (swap_size == "2 GiB") swap_mib = 2048;
+    else if (swap_size == "4 GiB") swap_mib = 4096;
+    else if (swap_size == "8 GiB") swap_mib = 8192;
+    else if (swap_size == "16 GiB") swap_mib = 16384;
+
+    uint64_t root_mib = target.size_mib - efi_mib - swap_mib - 2;
+
     std::string p_efi = get_part_name(target.path, 1);
     std::string p_root = get_part_name(target.path, 2);
+    std::string p_swap = get_part_name(target.path, 3);
 
     run_cmd("wipefs -a -f " + target.path);
     run_cmd("parted -s " + target.path + " mklabel gpt");
     run_cmd("parted -s " + target.path + " mkpart EFI fat32 1MiB " + std::to_string(efi_mib + 1) + "MiB");
     run_cmd("parted -s " + target.path + " set 1 esp on");
-    run_cmd("parted -s " + target.path + " mkpart ROOT ext4 " + std::to_string(efi_mib + 1) + "MiB " + std::to_string(efi_mib + 1 + root_mib) + "MiB");
+    run_cmd("parted -s " + target.path + " mkpart ROOT " + fs_type + " " + std::to_string(efi_mib + 1) + "MiB " + std::to_string(efi_mib + 1 + root_mib) + "MiB");
+    if (swap_mib > 0) {
+        run_cmd("parted -s " + target.path + " mkpart SWAP linux-swap " + std::to_string(efi_mib + 1 + root_mib) + "MiB " + std::to_string(efi_mib + 1 + root_mib + swap_mib) + "MiB");
+    }
     run_cmd("udevadm settle");
     sleep(1);
 
     run_cmd("mkfs.vfat -F 32 -n EFI " + p_efi);
-    run_cmd("mkfs.ext4 -F -L humanix-root " + p_root);
+    if (fs_type == "btrfs") {
+        run_cmd("mkfs.btrfs -f -L humanix-root " + p_root);
+    } else {
+        run_cmd("mkfs.ext4 -F -L humanix-root " + p_root);
+    }
+    if (swap_mib > 0) {
+        run_cmd("mkswap -L swap " + p_swap);
+    }
 
     const std::string mnt = "/mnt/humanix_target";
     fs::create_directories(mnt);
@@ -181,11 +202,18 @@ void perform_installation(const BlockDevice& target, const std::string& hostname
 
     std::string uuid_root = get_cmd_output("blkid -s UUID -o value " + p_root);
     std::string uuid_efi = get_cmd_output("blkid -s UUID -o value " + p_efi);
+    std::string uuid_swap;
+    if (swap_mib > 0) {
+        uuid_swap = get_cmd_output("blkid -s UUID -o value " + p_swap);
+    }
 
     std::ofstream fstab(mnt + "/etc/fstab");
-    fstab << "UUID=" << uuid_root << " / ext4 noatime,errors=remount-ro 0 1\n"
-          << "UUID=" << uuid_efi << " /boot/efi vfat umask=0077 0 2\n"
-          << "tmpfs /tmp tmpfs defaults,nosuid,nodev 0 0\n";
+    fstab << "UUID=" << uuid_root << " / " << fs_type << " noatime,errors=remount-ro 0 1\n"
+          << "UUID=" << uuid_efi << " /boot/efi vfat umask=0077 0 2\n";
+    if (swap_mib > 0) {
+        fstab << "UUID=" << uuid_swap << " none swap sw 0 0\n";
+    }
+    fstab << "tmpfs /tmp tmpfs defaults,nosuid,nodev 0 0\n";
     fstab.close();
 
     std::ofstream(mnt + "/etc/hostname") << hostname << "\n";
@@ -214,12 +242,36 @@ void perform_installation(const BlockDevice& target, const std::string& hostname
     sudoers.close();
     chmod((mnt + "/etc/sudoers.d/01-humanix-user").c_str(), 0440);
 
+    if (!timezone.empty()) {
+        run_cmd("chroot " + mnt + " ln -sf /usr/share/zoneinfo/" + timezone + " /etc/localtime");
+    }
+    if (!locale.empty()) {
+        std::ofstream(mnt + "/etc/default/locale") << "LANG=" << locale << "\n";
+    }
+    if (!keymap.empty()) {
+        std::ofstream(mnt + "/etc/default/keyboard") << "XKBLAYOUT=\"" << keymap << "\"\n";
+    }
+
+    if (install_ssh) {
+        run_cmd("chroot " + mnt + " apt-get install -y openssh-server");
+        run_cmd("chroot " + mnt + " systemctl enable ssh");
+    }
+    if (install_desktop) {
+        run_cmd("chroot " + mnt + " apt-get install -y xorg lightdm xfce4 xfce4-goodies");
+        run_cmd("chroot " + mnt + " systemctl enable lightdm");
+    }
+
     fs::remove(mnt + "/etc/systemd/system/getty@tty1.service.d/autologin.conf");
     fs::remove(mnt + "/usr/local/sbin/humanix-installer");
 
     run_cmd("chroot " + mnt + " apt-get purge -y live-boot live-boot-initramfs-tools live-config live-config-systemd live-tools");
-    run_cmd("chroot " + mnt + " grub-install --target=x86_64-efi --efi-directory=/boot/efi --removable --no-nvram --recheck");
-    run_cmd("chroot " + mnt + " update-grub");
+
+    if (bootloader == "GRUB (UEFI)") {
+        run_cmd("chroot " + mnt + " grub-install --target=x86_64-efi --efi-directory=/boot/efi --removable --no-nvram --recheck");
+        run_cmd("chroot " + mnt + " update-grub");
+    } else if (bootloader == "systemd-boot") {
+        run_cmd("chroot " + mnt + " bootctl --path=/boot/efi install");
+    }
 
     run_cmd("umount -R " + mnt + " 2>/dev/null || true");
 }
@@ -240,7 +292,7 @@ int main() {
 
     std::vector<std::string> disk_entries;
     for (const auto& d : disks) {
-        disk_entries.push_back(d.path + " (" + d.size_human + ") - " + d.model);
+        disk_entries.push_back(d.path + "  " + d.size_human + "  " + d.model);
     }
 
     int selected_disk_idx = 0;
@@ -251,6 +303,35 @@ int main() {
     std::string user_pwd = "";
     std::string root_pwd = "";
     bool sudo_no_pwd = false;
+
+    std::vector<std::string> timezones = {"UTC", "Europe/Moscow", "Europe/London", "America/New_York", "Asia/Tokyo"};
+    int tz_idx = 0;
+    auto tz_radio = Radiobox(&timezones, &tz_idx);
+
+    std::vector<std::string> locales = {"en_US.UTF-8", "ru_RU.UTF-8", "de_DE.UTF-8", "fr_FR.UTF-8"};
+    int loc_idx = 0;
+    auto loc_radio = Radiobox(&locales, &loc_idx);
+
+    std::vector<std::string> keymaps = {"us", "ru", "de", "fr"};
+    int key_idx = 0;
+    auto key_radio = Radiobox(&keymaps, &key_idx);
+
+    std::vector<std::string> fs_types = {"ext4", "btrfs"};
+    int fs_idx = 0;
+    auto fs_radio = Radiobox(&fs_types, &fs_idx);
+
+    std::vector<std::string> swap_sizes = {"None", "2 GiB", "4 GiB", "8 GiB", "16 GiB"};
+    int swap_idx = 0;
+    auto swap_radio = Radiobox(&swap_sizes, &swap_idx);
+
+    std::vector<std::string> bootloaders = {"GRUB (UEFI)", "systemd-boot"};
+    int boot_idx = 0;
+    auto boot_radio = Radiobox(&bootloaders, &boot_idx);
+
+    bool install_ssh = false;
+    bool install_desktop = false;
+    auto check_ssh = Checkbox("Install OpenSSH server", &install_ssh);
+    auto check_desktop = Checkbox("Install XFCE desktop", &install_desktop);
 
     auto input_hostname = Input(&hostname, "hostname");
     auto input_username = Input(&username, "username");
@@ -263,41 +344,69 @@ int main() {
     auto check_sudo = Checkbox("Passwordless sudo", &sudo_no_pwd);
 
     bool start_install = false;
-    auto btn_install = Button("Install Humanix", [&] {
+    auto btn_install = Button("Install", [&] {
         if (!user_pwd.empty() && !root_pwd.empty()) {
             start_install = true;
             screen.ExitLoopClosure()();
         }
     });
 
-    auto btn_cancel = Button("Exit", screen.ExitLoopClosure());
+    auto btn_cancel = Button("Cancel", screen.ExitLoopClosure());
 
     auto container = Container::Vertical({
         disk_radio,
+        tz_radio,
+        loc_radio,
+        key_radio,
+        fs_radio,
+        swap_radio,
+        boot_radio,
         input_hostname,
         input_username,
         input_user_pwd,
         input_root_pwd,
         check_sudo,
+        check_ssh,
+        check_desktop,
         Container::Horizontal({btn_install, btn_cancel})
     });
 
     auto renderer = Renderer(container, [&] {
         return vbox({
-            text(" Humanix OS Installer (TUI) ") | bold | hcenter | color(Color::Cyan),
+            text("Humanix OS Installer") | bold | hcenter | color(Color::Cyan),
             separator(),
-            vbox({
-                text("1. Select Destination Disk (WILL BE WIPED):") | bold | color(Color::Yellow),
-                disk_radio->Render() | frame | size(HEIGHT, LESS_THAN, 6),
-            }) | border,
-            vbox({
-                text("2. System & User Configuration:") | bold | color(Color::Green),
-                hbox(text("Hostname:   "), input_hostname->Render()),
-                hbox(text("Username:   "), input_username->Render()),
-                hbox(text("User Pass:  "), input_user_pwd->Render()),
-                hbox(text("Root Pass:  "), input_root_pwd->Render()),
-                check_sudo->Render(),
-            }) | border,
+            hbox({
+                vbox({
+                    text("Disk") | bold | color(Color::Yellow),
+                    disk_radio->Render() | frame | size(HEIGHT, LESS_THAN, 5),
+                    separator(),
+                    text("Filesystem") | bold | color(Color::Yellow),
+                    fs_radio->Render(),
+                    separator(),
+                    text("Swap") | bold | color(Color::Yellow),
+                    swap_radio->Render(),
+                    separator(),
+                    text("Bootloader") | bold | color(Color::Yellow),
+                    boot_radio->Render(),
+                }) | border | flex,
+                vbox({
+                    text("Region") | bold | color(Color::Green),
+                    hbox(text("Timezone "), tz_radio->Render()),
+                    hbox(text("Locale   "), loc_radio->Render()),
+                    hbox(text("Keymap   "), key_radio->Render()),
+                    separator(),
+                    text("User") | bold | color(Color::Green),
+                    hbox(text("Hostname "), input_hostname->Render()),
+                    hbox(text("Username "), input_username->Render()),
+                    hbox(text("Password "), input_user_pwd->Render()),
+                    hbox(text("Root     "), input_root_pwd->Render()),
+                    check_sudo->Render(),
+                    separator(),
+                    text("Extras") | bold | color(Color::Green),
+                    check_ssh->Render(),
+                    check_desktop->Render(),
+                }) | border | flex,
+            }) | flex,
             hbox({
                 btn_install->Render() | color(Color::Green) | bold,
                 text("  "),
@@ -310,9 +419,11 @@ int main() {
 
     if (start_install) {
         std::cout << "\033[2J\033[H";
-        std::cout << "Starting installation on " << disks[selected_disk_idx].path << "...\n";
-        perform_installation(disks[selected_disk_idx], hostname, username, root_pwd, user_pwd, sudo_no_pwd);
-        std::cout << "\nInstallation completed! Reboot and remove media.\n";
+        std::cout << "Installing on " << disks[selected_disk_idx].path << "...\n";
+        perform_installation(disks[selected_disk_idx], hostname, username, root_pwd, user_pwd, sudo_no_pwd,
+                             timezones[tz_idx], locales[loc_idx], keymaps[key_idx], fs_types[fs_idx],
+                             install_ssh, install_desktop, swap_sizes[swap_idx], bootloaders[boot_idx]);
+        std::cout << "\nDone. Reboot and remove installation media.\n";
     }
 
     return 0;
