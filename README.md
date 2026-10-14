@@ -51,5 +51,5 @@ Humanix is a personal project.
 You can read and change its configuration and source code in this repository.
 
 ## Screenshots
-
+![installer](./docs/installer-screenshot.png)
 ![minions grub](./docs/grub.png)
