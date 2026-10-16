@@ -687,7 +687,7 @@ int main() {
     std::string ui_error;
     bool request_install = false;
     bool quit = false;
-
+    auto screen = ftxui::ScreenInteractive::Fullscreen();
     auto back_button = Button("Back", [&] { if (page > 0) --page; });
     auto next_button = Button("Next", [&] { if (page < static_cast<int>(pages.size()) - 1) ++page; });
     auto install_button = Button("Install", [&] {
@@ -737,7 +737,11 @@ int main() {
         quit = true;
         ui_error.clear();
     });
-    auto quit_button = Button("Quit", [&] { quit = true; });
+        auto quit_button = Button("Quit", [&] {
+        quit = true;
+        screen.Exit();
+    }); // Quit without installing
+    
 
     auto page_container = Container::Tab({
         Container::Vertical({disk_menu}),
@@ -865,7 +869,6 @@ int main() {
         }) | borderDouble;
     });
 
-    auto screen = ftxui::ScreenInteractive::Fullscreen();
     screen.Loop(renderer);
     if (!request_install) {
         std::cout << (quit ? "Installer closed.\n" : "Installation cancelled.\n");
