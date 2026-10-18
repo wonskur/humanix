@@ -2,8 +2,11 @@ package installer
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/wonskur/upm/internal/utils"
 )
 
 func TestGenerateBwrapWrapper(t *testing.T) {
@@ -12,11 +15,11 @@ func TestGenerateBwrapWrapper(t *testing.T) {
 		t.Fatalf("GenerateBwrapWrapper failed: %v", err)
 	}
 
+	optDir := filepath.Join(utils.RuntimeOptDir(), "fedora", "htop")
 	checks := []string{
 		"#!/bin/sh",
 		"BWRAP_BIN",
-		"/opt/upm/fedora/htop",
-		"/opt/upm/fedora/htop/usr/bin/htop",
+		shellQuote(optDir),
 		"--setenv LD_LIBRARY_PATH",
 		`"$TARGET_BIN" "$@"`,
 	}
@@ -25,6 +28,9 @@ func TestGenerateBwrapWrapper(t *testing.T) {
 		if !strings.Contains(script, check) {
 			t.Errorf("expected script to contain %q, but got:\n%s", check, script)
 		}
+	}
+	if !strings.Contains(script, filepath.Join(optDir, "usr", "bin", "htop")) {
+		t.Errorf("wrapper did not include expected target path: %s", script)
 	}
 }
 
@@ -50,7 +56,8 @@ func TestCreateWrapperFile(t *testing.T) {
 		t.Fatalf("failed reading wrapper: %v", err)
 	}
 
-	if !strings.Contains(string(content), "/opt/upm/debian/curl") {
+	optDir := filepath.Join(utils.RuntimeOptDir(), "debian", "curl")
+	if !strings.Contains(string(content), optDir) {
 		t.Errorf("wrapper content missing target path: %s", string(content))
 	}
 }

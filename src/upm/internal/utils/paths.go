@@ -19,6 +19,49 @@ const (
 	LegacyEtcDir      = "/etc/pm"
 )
 
+func userDataDir() string {
+	if value := os.Getenv("XDG_DATA_HOME"); value != "" {
+		return filepath.Join(value, "upm")
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, ".local", "share", "upm")
+	}
+	return filepath.Join(os.TempDir(), "upm")
+}
+
+func userCacheDir() string {
+	if value := os.Getenv("XDG_CACHE_HOME"); value != "" {
+		return filepath.Join(value, "upm")
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, ".cache", "upm")
+	}
+	return filepath.Join(os.TempDir(), "upm")
+}
+
+func userConfigDir() string {
+	if value := os.Getenv("XDG_CONFIG_HOME"); value != "" {
+		return filepath.Join(value, "upm")
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, ".config", "upm")
+	}
+	return filepath.Join(os.TempDir(), "upm")
+}
+
+func userStateDirFor(suffix string) string {
+	switch suffix {
+	case filepath.Join("var", "cache"):
+		return userCacheDir()
+	case "opt":
+		return filepath.Join(userDataDir(), "opt")
+	case filepath.Join("etc"):
+		return userConfigDir()
+	default:
+		return userDataDir()
+	}
+}
+
 // RootPrefix returns the optional sysroot prefix. PM_ROOT remains supported for compatibility.
 func RootPrefix() string {
 	if root := os.Getenv("UPM_ROOT"); root != "" {
@@ -38,12 +81,13 @@ func stateDir(defaultDir, legacyDir, suffix string) string {
 		}
 		return newPath
 	}
-	if _, err := os.Stat(defaultDir); os.IsNotExist(err) {
-		if _, legacyErr := os.Stat(legacyDir); legacyErr == nil {
-			return legacyDir
-		}
+	if err := os.MkdirAll(defaultDir, 0755); err == nil {
+		return defaultDir
 	}
-	return defaultDir
+	if _, legacyErr := os.Stat(legacyDir); legacyErr == nil {
+		return legacyDir
+	}
+	return userStateDirFor(suffix)
 }
 
 // LibDir returns the directory containing the active package database.
@@ -60,7 +104,13 @@ func LibDir() string {
 	if _, err := os.Stat(filepath.Join(legacyDir, DefaultDBName)); err == nil {
 		return legacyDir
 	}
-	return newDir
+	if err := os.MkdirAll(newDir, 0755); err == nil {
+		return newDir
+	}
+	if _, legacyErr := os.Stat(legacyDir); legacyErr == nil {
+		return legacyDir
+	}
+	return userDataDir()
 }
 
 // CacheDir returns the download and package cache directory.
@@ -87,16 +137,23 @@ func EtcDir() string {
 	if _, err := os.Stat(filepath.Join(legacyDir, DefaultConfigName)); err == nil {
 		return legacyDir
 	}
-	return newDir
+	if err := os.MkdirAll(newDir, 0755); err == nil {
+		return newDir
+	}
+	if _, legacyErr := os.Stat(legacyDir); legacyErr == nil {
+		return legacyDir
+	}
+	return userConfigDir()
 }
 
 // RuntimeOptDir returns the path wrappers use outside a sysroot installation.
 func RuntimeOptDir() string {
 	if RootPrefix() == "" {
-		if _, err := os.Stat(DefaultOptDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(DefaultOptDir, 0755); err != nil {
 			if _, legacyErr := os.Stat(LegacyOptDir); legacyErr == nil {
 				return LegacyOptDir
 			}
+			return filepath.Join(userDataDir(), "opt")
 		}
 	}
 	return DefaultOptDir
