@@ -11,6 +11,7 @@ import (
 	"github.com/wonskur/upm/internal/download"
 	"github.com/wonskur/upm/internal/installer"
 	pkg "github.com/wonskur/upm/internal/package"
+	"github.com/wonskur/upm/internal/repo"
 	"github.com/wonskur/upm/internal/resolver"
 	"github.com/wonskur/upm/internal/utils"
 )
@@ -97,28 +98,50 @@ var installCmd = &cobra.Command{
 				return fmt.Errorf("refusing to install %s without a valid repository SHA256 checksum: %w", p.Name, err)
 			}
 
-			// Download package archive
-			archiveName := filepath.Base(p.URL)
-			archivePath := filepath.Join(cacheDir, archiveName)
-			if _, err := os.Stat(archivePath); err == nil {
-				if err := download.VerifyFileSHA256(archivePath, p.Checksum); err != nil {
-					if removeErr := os.Remove(archivePath); removeErr != nil && !os.IsNotExist(removeErr) {
-						return fmt.Errorf("failed removing invalid cached archive for %s: %w", p.Name, removeErr)
-					}
-				}
-			} else if !os.IsNotExist(err) {
-				return fmt.Errorf("failed checking package cache for %s: %w", p.Name, err)
-			}
-			if _, err := os.Stat(archivePath); os.IsNotExist(err) {
-				fmt.Printf("--> Downloading %s from %s...\n", p.Name, p.URL)
-				if err := download.DownloadFile(cmd.Context(), p.URL, archivePath); err != nil {
-					return fmt.Errorf("failed downloading %s: %w", p.Name, err)
-				}
+			candidateURLs := []string{p.URL}
+			if p.Provider == "arch" {
+				candidateURLs = repo.ArchPackageURLs(p)
 			}
 
-			if err := download.VerifyFileSHA256(archivePath, p.Checksum); err != nil {
-				_ = os.Remove(archivePath)
-				return fmt.Errorf("checksum verification failed for %s: %w", p.Name, err)
+			var lastErr error
+			var downloaded bool
+			var archivePath string
+			for _, candidateURL := range candidateURLs {
+				archiveName := filepath.Base(candidateURL)
+				archivePath = filepath.Join(cacheDir, archiveName)
+				if _, err := os.Stat(archivePath); err == nil {
+					if err := download.VerifyFileSHA256(archivePath, p.Checksum); err != nil {
+						if removeErr := os.Remove(archivePath); removeErr != nil && !os.IsNotExist(removeErr) {
+							return fmt.Errorf("failed removing invalid cached archive for %s: %w", p.Name, removeErr)
+						}
+					} else {
+						downloaded = true
+						break
+					}
+				} else if !os.IsNotExist(err) {
+					return fmt.Errorf("failed checking package cache for %s: %w", p.Name, err)
+				}
+				if _, err := os.Stat(archivePath); os.IsNotExist(err) {
+					fmt.Printf("--> Downloading %s from %s...\n", p.Name, candidateURL)
+					if err := download.DownloadFile(cmd.Context(), candidateURL, archivePath); err != nil {
+						lastErr = err
+						continue
+					}
+				}
+
+				if err := download.VerifyFileSHA256(archivePath, p.Checksum); err != nil {
+					_ = os.Remove(archivePath)
+					lastErr = err
+					continue
+				}
+				downloaded = true
+				break
+			}
+			if !downloaded {
+				if lastErr != nil {
+					return fmt.Errorf("failed downloading %s: %w", p.Name, lastErr)
+				}
+				return fmt.Errorf("failed downloading %s: no valid archive URL found", p.Name)
 			}
 
 			// Install foreign package

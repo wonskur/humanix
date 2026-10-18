@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/wonskur/upm/internal/db"
+	pkg "github.com/wonskur/upm/internal/package"
 	"github.com/wonskur/upm/internal/repo"
 )
 
@@ -86,6 +87,17 @@ ncurses
 	}
 
 	return buf
+}
+
+func TestArchPackageURLs(t *testing.T) {
+	urls := repo.ArchPackageURLs(pkg.Package{Name: "fastfetch", Version: "2.70.0-1"})
+	if len(urls) == 0 {
+		t.Fatal("ArchPackageURLs returned no URLs")
+	}
+	want := "https://geo.mirror.pkgbuild.com/extra/os/x86_64/fastfetch-2.70.0-1-x86_64.pkg.tar.zst"
+	if urls[3] != want {
+		t.Fatalf("expected extra repo zst URL %q, got %q", want, urls[3])
+	}
 }
 
 func TestParseArchRepoDB(t *testing.T) {

@@ -121,6 +121,25 @@ func (a *ArchProvider) Get(ctx context.Context, name string) (*pkg.Package, erro
 	return a.database.GetAvailable(ctx, name, "arch")
 }
 
+// ArchPackageURLs builds the candidate archive URLs for an Arch package from the core/extra repos.
+func ArchPackageURLs(p pkg.Package) []string {
+	if p.Name == "" || p.Version == "" {
+		return nil
+	}
+
+	baseName := fmt.Sprintf("%s-%s-x86_64", p.Name, p.Version)
+	archiveSuffixes := []string{".pkg.tar.zst", ".pkg.tar.xz", ".pkg.tar.gz"}
+	repos := []string{"core", "extra"}
+
+	urls := make([]string, 0, len(repos)*len(archiveSuffixes))
+	for _, repo := range repos {
+		for _, suffix := range archiveSuffixes {
+			urls = append(urls, fmt.Sprintf("https://geo.mirror.pkgbuild.com/%s/os/x86_64/%s%s", repo, baseName, suffix))
+		}
+	}
+	return urls
+}
+
 // ParseArchRepoDB parses an Arch Linux .db.tar.gz database stream into a slice of Package structs.
 func ParseArchRepoDB(r io.Reader) ([]pkg.Package, error) {
 	gzr, err := gzip.NewReader(r)
