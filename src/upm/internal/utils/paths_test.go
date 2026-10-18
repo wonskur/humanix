@@ -102,3 +102,16 @@ func TestDBPathFallsBackWhenExistingDBIsReadOnly(t *testing.T) {
 		t.Fatalf("DBPath() = %q, want %q", got, want)
 	}
 }
+
+func TestBinDirFallsBackToUserDirectoryWhenSystemDirectoryIsUnavailable(t *testing.T) {
+	root := t.TempDir()
+	systemPath := filepath.Join(root, "not-a-directory")
+	if err := os.WriteFile(systemPath, []byte("block"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	userPath := filepath.Join(root, "home", ".local", "bin")
+
+	if got := binDirFor(systemPath, userPath); got != userPath {
+		t.Fatalf("binDirFor() = %q, want user directory %q", got, userPath)
+	}
+}

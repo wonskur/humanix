@@ -241,7 +241,21 @@ func BinDir() string {
 	if root := RootPrefix(); root != "" {
 		return filepath.Join(root, "usr", "bin")
 	}
-	return DefaultBinDir
+	return binDirFor(DefaultBinDir, userBinDir())
+}
+
+func userBinDir() string {
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, ".local", "bin")
+	}
+	return filepath.Join(os.TempDir(), "upm", "bin")
+}
+
+func binDirFor(systemDir, userDir string) string {
+	if dirIsWritable(systemDir) {
+		return systemDir
+	}
+	return userDir
 }
 
 // DBPath returns the path to the installed packages SQLite database.
