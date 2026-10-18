@@ -62,6 +62,19 @@ func createMockFedoraPrimaryXMLGz(t *testing.T) *bytes.Buffer {
 	return buf
 }
 
+func TestDefaultFedoraURLsUseCurrentRelease(t *testing.T) {
+	urls := repo.DefaultFedoraURLs()
+	if len(urls) == 0 {
+		t.Fatal("DefaultFedoraURLs returned no URLs")
+	}
+	if !bytes.Contains([]byte(urls[0]), []byte("/releases/42/")) {
+		t.Fatalf("expected first Fedora URL to prefer release 42, got %q", urls[0])
+	}
+	if !bytes.Contains([]byte(urls[1]), []byte("/releases/41/")) {
+		t.Fatalf("expected fallback Fedora URL to be release 41, got %q", urls[1])
+	}
+}
+
 func TestParseFedoraPrimaryXML(t *testing.T) {
 	buf := createMockFedoraPrimaryXMLGz(t)
 

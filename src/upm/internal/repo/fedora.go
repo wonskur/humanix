@@ -16,8 +16,13 @@ import (
 )
 
 const (
-	DefaultFedoraURL = "https://download.fedoraproject.org/pub/fedora/linux/releases/39/Everything/x86_64/os/repodata/primary.xml.gz"
+	DefaultFedoraURL  = "https://download.fedoraproject.org/pub/fedora/linux/releases/42/Everything/x86_64/os/repodata/primary.xml.gz"
+	FallbackFedoraURL = "https://download.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/repodata/primary.xml.gz"
 )
+
+func DefaultFedoraURLs() []string {
+	return []string{DefaultFedoraURL, FallbackFedoraURL}
+}
 
 type FedoraProvider struct {
 	repoURLs []string
@@ -28,7 +33,7 @@ type FedoraProvider struct {
 // NewFedoraProvider creates a provider for Fedora RPM repositories.
 func NewFedoraProvider(database *db.DB, repoURLs ...string) *FedoraProvider {
 	if len(repoURLs) == 0 {
-		repoURLs = []string{DefaultFedoraURL}
+		repoURLs = DefaultFedoraURLs()
 	}
 	return &FedoraProvider{
 		repoURLs: repoURLs,
@@ -44,36 +49,43 @@ func (f *FedoraProvider) Name() string {
 // Sync downloads primary.xml.gz from Fedora mirrors and stores parsed metadata into SQLite.
 func (f *FedoraProvider) Sync(ctx context.Context) error {
 	totalSynced := 0
+	var lastErr error
 
 	for _, rawURL := range f.repoURLs {
 		if err := requireHTTPS(rawURL); err != nil {
-			return err
+			lastErr = err
+			continue
 		}
 		slog.Info("syncing fedora repository", "url", rawURL)
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 		if err != nil {
-			return fmt.Errorf("failed to create request for %s: %w", rawURL, err)
+			lastErr = fmt.Errorf("failed to create request for %s: %w", rawURL, err)
+			continue
 		}
 
 		resp, err := f.client.Do(req)
 		if err != nil {
-			return fmt.Errorf("failed to download fedora primary.xml.gz from %s: %w", rawURL, err)
+			lastErr = fmt.Errorf("failed to download fedora primary.xml.gz from %s: %w", rawURL, err)
+			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
 			resp.Body.Close()
-			return fmt.Errorf("HTTP error %d downloading %s", resp.StatusCode, rawURL)
+			lastErr = fmt.Errorf("HTTP error %d downloading %s", resp.StatusCode, rawURL)
+			continue
 		}
 
 		limited := &io.LimitedReader{R: resp.Body, N: maxRepositoryDownload + 1}
 		pkgs, err := ParseFedoraPrimaryXML(limited)
 		resp.Body.Close()
 		if err != nil {
-			return fmt.Errorf("failed to parse fedora primary.xml from %s: %w", rawURL, err)
+			lastErr = fmt.Errorf("failed to parse fedora primary.xml from %s: %w", rawURL, err)
+			continue
 		}
 		if limited.N == 0 {
-			return fmt.Errorf("repository metadata exceeds maximum size of %d bytes", maxRepositoryDownload)
+			lastErr = fmt.Errorf("repository metadata exceeds maximum size of %d bytes", maxRepositoryDownload)
+			continue
 		}
 
 		if f.database != nil {
@@ -84,6 +96,11 @@ func (f *FedoraProvider) Sync(ctx context.Context) error {
 
 		slog.Info("fedora repository synced", "url", rawURL, "packages", len(pkgs))
 		totalSynced += len(pkgs)
+		return nil
+	}
+
+	if totalSynced == 0 && lastErr != nil {
+		return lastErr
 	}
 
 	slog.Info("fedora provider sync completed", "total_packages", totalSynced)
