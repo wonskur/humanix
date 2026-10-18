@@ -20,6 +20,7 @@ func TestGenerateBwrapWrapper(t *testing.T) {
 		"#!/bin/sh",
 		"BWRAP_BIN",
 		shellQuote(optDir),
+		`--setenv TERM "${TERM:-xterm}"`,
 		"--setenv LD_LIBRARY_PATH",
 		`"$TARGET_BIN" "$@"`,
 	}

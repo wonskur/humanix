@@ -73,6 +73,7 @@ exec "$BWRAP_BIN" \
 	--setenv HOME "$HOME" \
 	--setenv USER "${USER:-}" \
 	--setenv LANG "${LANG:-C.UTF-8}" \
+	--setenv TERM "${TERM:-xterm}" \
 	--setenv LD_LIBRARY_PATH "$FOREIGN_LIB:${LD_LIBRARY_PATH:-}" \
     --setenv PATH "$FOREIGN_PATH" \
     "$TARGET_BIN" "$@"
