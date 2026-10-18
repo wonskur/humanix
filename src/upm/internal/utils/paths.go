@@ -62,6 +62,68 @@ func userStateDirFor(suffix string) string {
 	}
 }
 
+func dirIsWritable(path string) bool {
+	if path == "" {
+		return false
+	}
+	if info, err := os.Stat(path); err == nil {
+		if !info.IsDir() {
+			return false
+		}
+	} else if os.IsNotExist(err) {
+		if err := os.MkdirAll(path, 0755); err != nil {
+			return false
+		}
+	} else {
+		return false
+	}
+
+	probe := filepath.Join(path, ".upm-write-test")
+	f, err := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return false
+	}
+	if err := f.Close(); err != nil {
+		return false
+	}
+	_ = os.Remove(probe)
+	return true
+}
+
+func fileIsWritable(path string) bool {
+	if path == "" {
+		return false
+	}
+	if info, err := os.Stat(path); err == nil {
+		if info.IsDir() {
+			return dirIsWritable(path)
+		}
+		f, err := os.OpenFile(path, os.O_RDWR, 0600)
+		if err != nil {
+			return false
+		}
+		_ = f.Close()
+		return true
+	}
+	return dirIsWritable(filepath.Dir(path))
+}
+
+func dbDirIsWritable(path string) bool {
+	dbPath := filepath.Join(path, DefaultDBName)
+	if _, err := os.Stat(dbPath); err == nil {
+		return fileIsWritable(dbPath)
+	}
+	return dirIsWritable(path)
+}
+
+func configDirIsWritable(path string) bool {
+	configPath := filepath.Join(path, DefaultConfigName)
+	if _, err := os.Stat(configPath); err == nil {
+		return fileIsWritable(configPath)
+	}
+	return dirIsWritable(path)
+}
+
 // RootPrefix returns the optional sysroot prefix. PM_ROOT remains supported for compatibility.
 func RootPrefix() string {
 	if root := os.Getenv("UPM_ROOT"); root != "" {
@@ -75,16 +137,22 @@ func stateDir(defaultDir, legacyDir, suffix string) string {
 		newPath := filepath.Join(root, suffix, "upm")
 		legacyPath := filepath.Join(root, suffix, "pm")
 		if _, err := os.Stat(newPath); os.IsNotExist(err) {
-			if _, legacyErr := os.Stat(legacyPath); legacyErr == nil {
+			if _, legacyErr := os.Stat(legacyPath); legacyErr == nil && dirIsWritable(legacyPath) {
 				return legacyPath
 			}
 		}
-		return newPath
+		if dirIsWritable(newPath) {
+			return newPath
+		}
+		if dirIsWritable(legacyPath) {
+			return legacyPath
+		}
+		return userStateDirFor(suffix)
 	}
-	if err := os.MkdirAll(defaultDir, 0755); err == nil {
+	if dirIsWritable(defaultDir) {
 		return defaultDir
 	}
-	if _, legacyErr := os.Stat(legacyDir); legacyErr == nil {
+	if dirIsWritable(legacyDir) {
 		return legacyDir
 	}
 	return userStateDirFor(suffix)
@@ -99,15 +167,19 @@ func LibDir() string {
 		legacyDir = filepath.Join(root, "var", "lib", "pm")
 	}
 	if _, err := os.Stat(filepath.Join(newDir, DefaultDBName)); err == nil {
-		return newDir
+		if dbDirIsWritable(newDir) {
+			return newDir
+		}
 	}
 	if _, err := os.Stat(filepath.Join(legacyDir, DefaultDBName)); err == nil {
-		return legacyDir
+		if dbDirIsWritable(legacyDir) {
+			return legacyDir
+		}
 	}
-	if err := os.MkdirAll(newDir, 0755); err == nil {
+	if dbDirIsWritable(newDir) {
 		return newDir
 	}
-	if _, legacyErr := os.Stat(legacyDir); legacyErr == nil {
+	if dbDirIsWritable(legacyDir) {
 		return legacyDir
 	}
 	return userDataDir()
@@ -132,15 +204,19 @@ func EtcDir() string {
 		legacyDir = filepath.Join(root, "etc", "pm")
 	}
 	if _, err := os.Stat(filepath.Join(newDir, DefaultConfigName)); err == nil {
-		return newDir
+		if configDirIsWritable(newDir) {
+			return newDir
+		}
 	}
 	if _, err := os.Stat(filepath.Join(legacyDir, DefaultConfigName)); err == nil {
-		return legacyDir
+		if configDirIsWritable(legacyDir) {
+			return legacyDir
+		}
 	}
-	if err := os.MkdirAll(newDir, 0755); err == nil {
+	if configDirIsWritable(newDir) {
 		return newDir
 	}
-	if _, legacyErr := os.Stat(legacyDir); legacyErr == nil {
+	if configDirIsWritable(legacyDir) {
 		return legacyDir
 	}
 	return userConfigDir()
@@ -149,12 +225,13 @@ func EtcDir() string {
 // RuntimeOptDir returns the path wrappers use outside a sysroot installation.
 func RuntimeOptDir() string {
 	if RootPrefix() == "" {
-		if err := os.MkdirAll(DefaultOptDir, 0755); err != nil {
-			if _, legacyErr := os.Stat(LegacyOptDir); legacyErr == nil {
-				return LegacyOptDir
-			}
-			return filepath.Join(userDataDir(), "opt")
+		if dirIsWritable(DefaultOptDir) {
+			return DefaultOptDir
 		}
+		if dirIsWritable(LegacyOptDir) {
+			return LegacyOptDir
+		}
+		return filepath.Join(userDataDir(), "opt")
 	}
 	return DefaultOptDir
 }
