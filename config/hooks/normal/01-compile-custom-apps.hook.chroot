@@ -40,9 +40,20 @@ if [ -d "/tmp/src/humanix-doctor" ]; then
     }
 fi
 
+if [ -d "/tmp/src/upm" ]; then
+    echo "  -> Building upm package manager..."
+    cd /tmp/src/upm
+    export GOTOOLCHAIN=auto
+    export GOMODCACHE=/tmp/upm-gomodcache
+    export GOCACHE=/tmp/upm-gocache
+    make install
+    unset GOTOOLCHAIN GOMODCACHE GOCACHE
+    rm -rf /tmp/upm-gomodcache /tmp/upm-gocache
+fi
+
 echo "[HOOK] Purging sources and temporary build toolchain..."
 rm -rf /tmp/src
-DEBIAN_FRONTEND=noninteractive apt-get purge -y --auto-remove g++ make
+DEBIAN_FRONTEND=noninteractive apt-get purge -y --auto-remove g++ make golang-go
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 

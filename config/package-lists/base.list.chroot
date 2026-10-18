@@ -44,3 +44,4 @@ usbutils
 smartmontools
 fastfetch
 rsync
+bubblewrap
